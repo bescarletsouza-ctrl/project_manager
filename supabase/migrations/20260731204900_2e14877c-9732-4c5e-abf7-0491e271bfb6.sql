@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.track_task_status() FROM PUBLIC, anon, authenticated;
