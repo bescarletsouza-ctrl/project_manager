@@ -1,7 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
@@ -31,6 +30,13 @@ function AuthPage() {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) navigate({ to: "/dashboard", replace: true });
     });
+
+    // Na volta do Google a URL chega com ?code=… e a troca por sessão é assíncrona.
+    // Esperar o evento evita a corrida com o getSession acima.
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) navigate({ to: "/dashboard", replace: true });
+    });
+    return () => listener.subscription.unsubscribe();
   }, [navigate]);
 
   async function submit(e: React.FormEvent) {
@@ -60,16 +66,17 @@ function AuthPage() {
     }
   }
 
+  /**
+   * OAuth nativo do Supabase: funciona em qualquer domínio, desde que a URL
+   * esteja em Authentication > URL Configuration > Redirect URLs.
+   * (O broker da Lovable em /~oauth/initiate só existe na hospedagem deles.)
+   */
   async function google() {
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth` },
     });
-    if (result.error) {
-      toast.error("Não foi possível entrar com o Google.");
-      return;
-    }
-    if (result.redirected) return;
-    navigate({ to: "/dashboard", replace: true });
+    if (error) toast.error(`Não foi possível entrar com o Google: ${error.message}`);
   }
 
   return (
