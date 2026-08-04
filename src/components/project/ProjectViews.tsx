@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -387,17 +387,137 @@ function AddInline({ onAdd, placeholder }: { onAdd: (v: string) => void; placeho
   );
 }
 
-/** Ordem, rótulo e largura das colunas configuráveis. */
+/**
+ * Ordem, rótulo, largura padrão e a partir de qual breakpoint a coluna aparece.
+ * A largura é só o ponto de partida — o usuário arrasta a borda para ajustar.
+ */
 const COLUMN_DEFS = [
-  { id: "tags", label: "Etiquetas", cls: "hidden w-32 lg:flex" },
-  { id: "sprint", label: "Sprint", cls: "hidden w-24 lg:flex" },
-  { id: "task_type", label: "Tipo", cls: "hidden w-24 lg:flex" },
-  { id: "priority", label: "Prioridade", cls: "hidden w-24 sm:flex" },
-  { id: "start_date", label: "Início", cls: "hidden w-28 md:flex" },
-  { id: "due_date", label: "Data de fim", cls: "flex w-28" },
-  { id: "status", label: "Status", cls: "hidden w-32 sm:flex" },
-  { id: "assignee", label: "Responsável", cls: "flex w-20" },
+  { id: "tags", label: "Etiquetas", bp: "lg", width: 128 },
+  { id: "sprint", label: "Sprint", bp: "lg", width: 96 },
+  { id: "task_type", label: "Tipo", bp: "lg", width: 96 },
+  { id: "priority", label: "Prioridade", bp: "sm", width: 96 },
+  { id: "start_date", label: "Início", bp: "md", width: 116 },
+  { id: "due_date", label: "Data de fim", bp: "none", width: 116 },
+  { id: "status", label: "Status", bp: "sm", width: 132 },
+  { id: "assignee", label: "Responsável", bp: "none", width: 92 },
 ] as const;
+
+/** Classes literais (o Tailwind precisa vê-las no fonte para gerá-las). */
+const SHOW: Record<string, string> = {
+  none: "flex",
+  sm: "hidden sm:flex",
+  md: "hidden md:flex",
+  lg: "hidden lg:flex",
+};
+
+const CUSTOM_FIELD_WIDTH = 116;
+const MIN_COLUMN_WIDTH = 64;
+const MAX_COLUMN_WIDTH = 480;
+
+const defaultWidth = (id: string) =>
+  COLUMN_DEFS.find((c) => c.id === id)?.width ?? CUSTOM_FIELD_WIDTH;
+
+/**
+ * Larguras de coluna por projeto. Ficam no localStorage: é preferência de
+ * visualização de quem está olhando, não dado do projeto — e evita migração
+ * de schema só para guardar pixel.
+ */
+function useColumnWidths(projectId: string) {
+  const storageKey = `fluxo:col-widths:${projectId}`;
+  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setWidths(saved ? (JSON.parse(saved) as Record<string, number>) : {});
+    } catch {
+      setWidths({});
+    }
+    setLoaded(true);
+  }, [storageKey]);
+
+  // Grava depois que o arraste sossega — durante o arraste seriam dezenas de
+  // escritas por segundo. O `loaded` evita salvar {} por cima do que existe.
+  useEffect(() => {
+    if (!loaded) return undefined;
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(widths));
+      } catch {
+        /* modo privado ou cota cheia: a sessão continua, só não persiste */
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [widths, loaded, storageKey]);
+
+  const widthOf = (id: string) => widths[id] ?? defaultWidth(id);
+
+  const setWidth = (id: string, value: number) =>
+    setWidths((prev) => ({
+      ...prev,
+      [id]: Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, value))),
+    }));
+
+  /** Duplo clique na alça devolve a coluna ao tamanho padrão. */
+  const resetWidth = (id: string) =>
+    setWidths((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
+  return { widthOf, setWidth, resetWidth };
+}
+
+type ColumnWidths = ReturnType<typeof useColumnWidths>;
+
+/** Alça de 6px na borda direita da coluna. */
+function ResizeHandle({
+  onResize,
+  onReset,
+  label,
+}: {
+  onResize: (deltaX: number) => void;
+  onReset: () => void;
+  label: string;
+}) {
+  const [active, setActive] = useState(false);
+
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Redimensionar coluna ${label}`}
+      title="Arraste para redimensionar · duplo clique para restaurar"
+      onDoubleClick={onReset}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const target = e.currentTarget;
+        target.setPointerCapture(e.pointerId);
+        setActive(true);
+
+        const move = (ev: PointerEvent) => onResize(ev.clientX - startX);
+        const up = () => {
+          setActive(false);
+          target.releasePointerCapture(e.pointerId);
+          target.removeEventListener("pointermove", move);
+          target.removeEventListener("pointerup", up);
+        };
+        target.addEventListener("pointermove", move);
+        target.addEventListener("pointerup", up);
+      }}
+      className={cn(
+        "absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize touch-none",
+        "after:absolute after:top-1 after:bottom-1 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors",
+        active ? "after:bg-brand" : "after:bg-transparent hover:after:bg-input",
+      )}
+    />
+  );
+}
 
 type SortKey = (typeof COLUMN_DEFS)[number]["id"] | "title";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
@@ -429,17 +549,19 @@ function sortValue(task: Task, key: SortKey, members: Member[]): string {
   }
 }
 
-/** Cabeçalho com nomes das colunas e ordenação. */
+/** Cabeçalho com nomes das colunas, ordenação e alças de redimensionamento. */
 function TaskHeader({
   columns,
   fields,
   sort,
   onSort,
+  cols,
 }: {
   columns: string[];
   fields: CustomField[];
   sort: SortState;
   onSort: (key: SortKey) => void;
+  cols: ColumnWidths;
 }) {
   const arrow = (key: SortKey) =>
     sort?.key === key ? (
@@ -452,33 +574,60 @@ function TaskHeader({
       <ArrowUpDown className="size-3 opacity-0 group-hover:opacity-50" />
     );
 
-  const cell = (key: SortKey, label: string, cls: string) => (
-    <button
-      key={key}
-      type="button"
-      onClick={() => onSort(key)}
-      className={cn(
-        "group items-center gap-1 truncate text-left text-[11px] font-medium tracking-wide uppercase",
-        sort?.key === key ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-        cls,
-      )}
-    >
-      <span className="truncate">{label}</span>
-      {arrow(key)}
-    </button>
-  );
+  const labelCls = "truncate text-left text-[11px] font-medium tracking-wide uppercase";
+
+  /** Coluna de largura fixa: rótulo (ordenável ou não) + alça na borda direita. */
+  const column = (id: string, label: string, bp: string, sortKey?: SortKey) => {
+    const start = cols.widthOf(id);
+    return (
+      <div
+        key={id}
+        style={{ width: start }}
+        className={cn("relative shrink-0 items-center", SHOW[bp] ?? SHOW["none"])}
+      >
+        {sortKey ? (
+          <button
+            type="button"
+            onClick={() => onSort(sortKey)}
+            className={cn(
+              "group flex min-w-0 flex-1 items-center gap-1",
+              labelCls,
+              sort?.key === sortKey ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span className="truncate">{label}</span>
+            {arrow(sortKey)}
+          </button>
+        ) : (
+          <span className={cn("min-w-0 flex-1 text-muted-foreground", labelCls)}>{label}</span>
+        )}
+        <ResizeHandle
+          label={label}
+          onReset={() => cols.resetWidth(id)}
+          onResize={(deltaX) => cols.setWidth(id, start + deltaX)}
+        />
+      </div>
+    );
+  };
 
   return (
     <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background px-3 py-2">
       <span className="w-4 shrink-0" />
       <span className="size-[18px] shrink-0" />
-      {cell("title", "Nome da tarefa", "flex min-w-0 flex-1")}
-      {fields.map((f) => (
-        <span key={f.id} className="w-28 shrink-0 truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-          {f.name}
-        </span>
-      ))}
-      {COLUMN_DEFS.filter((c) => columns.includes(c.id)).map((c) => cell(c.id, c.label, c.cls))}
+      <button
+        type="button"
+        onClick={() => onSort("title")}
+        className={cn(
+          "group flex min-w-0 flex-1 items-center gap-1",
+          labelCls,
+          sort?.key === "title" ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <span className="truncate">Nome da tarefa</span>
+        {arrow("title")}
+      </button>
+      {fields.map((f) => column(`cf:${f.id}`, f.name, "none"))}
+      {COLUMN_DEFS.filter((c) => columns.includes(c.id)).map((c) => column(c.id, c.label, c.bp, c.id))}
       <span className="size-6 shrink-0" />
     </div>
   );
@@ -593,13 +742,37 @@ export function CustomFieldCell({
 }
 
 /** Células de coluna configuráveis da lista — todas editáveis fora da tarefa. */
-function TaskCells({ task, columns, members }: { task: Task; columns: string[]; members: Member[] }) {
+function TaskCells({
+  task,
+  columns,
+  members,
+  cols,
+}: {
+  task: Task;
+  columns: string[];
+  members: Member[];
+  cols: ColumnWidths;
+}) {
   const patch = useTaskPatch(task);
   const has = (id: string) => columns.includes(id);
+  const assignee = members.find((m) => m.id === task.assignee_id);
+
+  /** Mesma largura e mesmo breakpoint do cabeçalho, senão as colunas desalinham. */
+  const cell = (id: string, bp: string, children: React.ReactNode, className?: string) => (
+    <span
+      style={{ width: cols.widthOf(id) }}
+      className={cn("shrink-0 items-center gap-1", SHOW[bp] ?? SHOW["none"], className)}
+    >
+      {children}
+    </span>
+  );
+
   return (
     <>
-      {has("tags") && (
-        <span className="hidden w-32 shrink-0 lg:block">
+      {has("tags") &&
+        cell(
+          "tags",
+          "lg",
           <InlineText
             label="Etiquetas"
             value={(task.tags ?? []).join(", ")}
@@ -612,80 +785,85 @@ function TaskCells({ task, columns, members }: { task: Task; columns: string[]; 
                   .filter(Boolean),
               })
             }
-          />
-        </span>
-      )}
-      {has("sprint") && (
-        <span className="hidden w-24 shrink-0 lg:block">
-          <InlineText label="Sprint" value={task.sprint ?? ""} onCommit={(v) => patch.mutate({ sprint: v || null })} />
-        </span>
-      )}
-      {has("task_type") && (
-        <span className="hidden w-24 shrink-0 lg:block">
+          />,
+        )}
+      {has("sprint") &&
+        cell(
+          "sprint",
+          "lg",
+          <InlineText label="Sprint" value={task.sprint ?? ""} onCommit={(v) => patch.mutate({ sprint: v || null })} />,
+        )}
+      {has("task_type") &&
+        cell(
+          "task_type",
+          "lg",
           <InlineSelect
             label="Tipo"
             value={task.task_type ?? ""}
             onChange={(v) => patch.mutate({ task_type: v })}
             options={TASK_TYPES.map((t) => ({ value: t, label: TASK_TYPE_LABEL[t] ?? t }))}
-          />
-        </span>
-      )}
-      {has("priority") && (
-        <span className="hidden w-24 shrink-0 sm:block">
+          />,
+        )}
+      {has("priority") &&
+        cell(
+          "priority",
+          "sm",
           <InlineSelect
             label="Prioridade"
             value={task.priority}
             onChange={(v) => patch.mutate({ priority: v as Priority })}
             options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
-          />
-        </span>
-      )}
-      {has("start_date") && (
-        <span className="hidden w-28 shrink-0 md:block">
+          />,
+        )}
+      {has("start_date") &&
+        cell(
+          "start_date",
+          "md",
           <InlineText
             label="Início"
             type="date"
             value={task.start_date ?? ""}
             onCommit={(v) => patch.mutate({ start_date: v || null })}
-          />
-        </span>
-      )}
-      {has("due_date") && (
-        <span className={cn("w-28 shrink-0", isLate(task) && "text-destructive")}>
+          />,
+        )}
+      {has("due_date") &&
+        cell(
+          "due_date",
+          "none",
           <InlineText
             label="Data de fim"
             type="date"
             value={task.due_date ?? ""}
             onCommit={(v) => patch.mutate({ due_date: v || null })}
-          />
-        </span>
-      )}
-      {has("status") && (
-        <span className="hidden w-32 shrink-0 sm:block">
+          />,
+          isLate(task) ? "text-destructive" : undefined,
+        )}
+      {has("status") &&
+        cell(
+          "status",
+          "sm",
           <InlineSelect
             label="Status"
             value={task.status}
             onChange={(v) => patch.mutate({ status: v as Task["status"], completed: v === "concluido" })}
             options={STATUS_ORDER.map((s) => ({ value: s, label: STATUS_META[s]?.label ?? s }))}
-          />
-        </span>
-      )}
-      {has("assignee") && (
-        <span className="flex w-20 shrink-0 items-center gap-1">
-          <Avatar
-            name={members.find((m) => m.id === task.assignee_id)?.name}
-            color={members.find((m) => m.id === task.assignee_id)?.avatar_color}
-            size="xs"
-          />
-          <InlineSelect
-            label="Responsável"
-            className="min-w-0 flex-1"
-            value={task.assignee_id ?? ""}
-            onChange={(v) => patch.mutate({ assignee_id: v || null })}
-            options={[{ value: "", label: "—" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-          />
-        </span>
-      )}
+          />,
+        )}
+      {has("assignee") &&
+        cell(
+          "assignee",
+          "none",
+          <>
+            <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
+            <InlineSelect
+              label="Responsável"
+              className="min-w-0 flex-1"
+              value={task.assignee_id ?? ""}
+              onChange={(v) => patch.mutate({ assignee_id: v || null })}
+              options={[{ value: "", label: "—" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+            />
+          </>,
+        )}
     </>
   );
 }
@@ -810,6 +988,7 @@ export function ListView({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
+  const cols = useColumnWidths(projectId);
 
   const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
   const anyCustomPicked = columns.some((c) => c.startsWith("cf:"));
@@ -836,7 +1015,7 @@ export function ListView({
   return (
     <div className="space-y-3">
       <div className="card-surface overflow-hidden">
-        <TaskHeader columns={columns} fields={visibleFields} sort={sort} onSort={toggleSort} />
+        <TaskHeader columns={columns} fields={visibleFields} sort={sort} onSort={toggleSort} cols={cols} />
 
         {groups.map((section) => {
           const roots = applySort(tasks.filter((t) => sectionOf(t) === section.id && !t.parent_task_id));
@@ -931,11 +1110,15 @@ export function ListView({
                             )}
                           </button>
                           {visibleFields.map((f) => (
-                            <span key={f.id} className="w-28 shrink-0">
+                            <span
+                              key={f.id}
+                              style={{ width: cols.widthOf(`cf:${f.id}`) }}
+                              className="shrink-0"
+                            >
                               <CustomFieldCell taskId={t.id} field={f} value={valueOf(t.id, f.id)} />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} />
+                          <TaskCells task={t} columns={columns} members={members} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
 
@@ -955,7 +1138,7 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
-                              <TaskCells task={s} columns={columns} members={members} />
+                              <TaskCells task={s} columns={columns} members={members} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                           ))}
