@@ -1074,7 +1074,11 @@ export function BoardView({
                       dnd.dropOnTask(t.id, section.id, listIds);
                     }}
                   >
-                    <button
+                    {/* div, não button: o card contém outros botões (concluir, excluir)
+                        e botão aninhado é HTML inválido — quebra a hidratação. */}
+                    <div
+                      role="button"
+                      tabIndex={0}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/task-id", t.id);
@@ -1082,7 +1086,13 @@ export function BoardView({
                       }}
                       onDragEnd={() => dnd.setDragTask(null)}
                       onClick={() => onOpenTask(t)}
-                      className="w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] active:cursor-grabbing"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenTask(t);
+                        }
+                      }}
+                      className="w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
                     >
                       <div className="flex items-start gap-2">
                         <TaskToggle task={t} automations={automations} size="sm" />
@@ -1118,7 +1128,7 @@ export function BoardView({
                           </span>
                         )}
                       </div>
-                    </button>
+                    </div>
                     <DeleteTaskButton
                       task={t}
                       className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100"

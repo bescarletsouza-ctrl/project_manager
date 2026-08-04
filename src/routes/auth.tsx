@@ -30,13 +30,6 @@ function AuthPage() {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) navigate({ to: "/dashboard", replace: true });
     });
-
-    // Na volta do Google a URL chega com ?code=… e a troca por sessão é assíncrona.
-    // Esperar o evento evita a corrida com o getSession acima.
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) navigate({ to: "/dashboard", replace: true });
-    });
-    return () => listener.subscription.unsubscribe();
   }, [navigate]);
 
   async function submit(e: React.FormEvent) {
@@ -64,19 +57,6 @@ function AuthPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  /**
-   * OAuth nativo do Supabase: funciona em qualquer domínio, desde que a URL
-   * esteja em Authentication > URL Configuration > Redirect URLs.
-   * (O broker da Lovable em /~oauth/initiate só existe na hospedagem deles.)
-   */
-  async function google() {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth` },
-    });
-    if (error) toast.error(`Não foi possível entrar com o Google: ${error.message}`);
   }
 
   return (
@@ -122,13 +102,6 @@ function AuthPage() {
             {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
           </button>
         </form>
-
-        <button
-          onClick={google}
-          className="mt-3 w-full rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-secondary"
-        >
-          Continuar com Google
-        </button>
 
         <button
           onClick={() => setMode(mode === "login" ? "signup" : "login")}
