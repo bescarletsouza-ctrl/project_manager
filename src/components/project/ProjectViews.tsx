@@ -17,6 +17,12 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu } from "@/components/ui-bits";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { deleteTask, updateTask } from "@/lib/data";
 import {
   createSection,
@@ -741,6 +747,50 @@ export function CustomFieldCell({
   return <InlineText label={field.name} value={value} type={type} onCommit={(v) => save.mutate(v)} />;
 }
 
+/**
+ * Responsável na lista: só a inicial e a seta. O nome ocupava a coluna inteira
+ * e ainda aparecia truncado ("Br…"); aqui ele fica no menu, onde cabe.
+ */
+function AssigneePicker({
+  members,
+  value,
+  onChange,
+}: {
+  members: Member[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const current = members.find((m) => m.id === value) ?? null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Responsável: ${current?.name ?? "ninguém"}`}
+        title={current?.name ?? "Sem responsável"}
+        onClick={(e) => e.stopPropagation()}
+        className="flex items-center gap-0.5 rounded-md px-1 py-0.5 transition-colors hover:bg-secondary"
+      >
+        <Avatar name={current?.name} color={current?.avatar_color} size="xs" />
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
+        <DropdownMenuItem onSelect={() => onChange(null)} className="gap-2 text-sm">
+          <Avatar size="xs" />
+          <span className="text-muted-foreground">Sem responsável</span>
+          {!current && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+        {members.map((m) => (
+          <DropdownMenuItem key={m.id} onSelect={() => onChange(m.id)} className="gap-2 text-sm">
+            <Avatar name={m.name} color={m.avatar_color} size="xs" />
+            <span className="truncate">{m.name}</span>
+            {m.id === value && <Check className="ml-auto size-3.5 shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Células de coluna configuráveis da lista — todas editáveis fora da tarefa. */
 function TaskCells({
   task,
@@ -755,7 +805,6 @@ function TaskCells({
 }) {
   const patch = useTaskPatch(task);
   const has = (id: string) => columns.includes(id);
-  const assignee = members.find((m) => m.id === task.assignee_id);
 
   /** Mesma largura e mesmo breakpoint do cabeçalho, senão as colunas desalinham. */
   const cell = (id: string, bp: string, children: React.ReactNode, className?: string) => (
@@ -853,16 +902,11 @@ function TaskCells({
         cell(
           "assignee",
           "none",
-          <>
-            <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
-            <InlineSelect
-              label="Responsável"
-              className="min-w-0 flex-1"
-              value={task.assignee_id ?? ""}
-              onChange={(v) => patch.mutate({ assignee_id: v || null })}
-              options={[{ value: "", label: "—" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-            />
-          </>,
+          <AssigneePicker
+            members={members}
+            value={task.assignee_id}
+            onChange={(id) => patch.mutate({ assignee_id: id })}
+          />,
         )}
     </>
   );

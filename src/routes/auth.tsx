@@ -19,6 +19,43 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+/**
+ * Consulta a função email_liberado no banco (ver migration de mesmo nome).
+ * Se a função ainda não foi aplicada, não trava o cadastro — a checagem aqui é
+ * de experiência, quem barra de verdade é a política do banco.
+ */
+async function emailLiberado(email: string) {
+  const { data, error } = await supabase.rpc("email_liberado" as never, { p_email: email } as never);
+  if (error) {
+    console.warn("[auth] email_liberado indisponível, seguindo sem checar:", error.message);
+    return true;
+  }
+  return data === true;
+}
+
+/** Traduz os erros mais comuns do Supabase para algo acionável. */
+function mensagemDeErro(err: unknown) {
+  const raw = err instanceof Error ? err.message : "";
+  const texto = raw.toLowerCase();
+
+  if (texto.includes("error sending") || texto.includes("confirmation email")) {
+    return "O Supabase não conseguiu enviar o e-mail de confirmação. Configure um SMTP próprio ou desative a confirmação de e-mail.";
+  }
+  if (texto.includes("already registered") || texto.includes("already been registered")) {
+    return "Já existe uma conta com este e-mail. Use “Entrar” ou recupere a senha.";
+  }
+  if (texto.includes("invalid login credentials")) {
+    return "E-mail ou senha incorretos.";
+  }
+  if (texto.includes("email not confirmed")) {
+    return "Confirme o e-mail pelo link enviado antes de entrar.";
+  }
+  if (texto.includes("password")) {
+    return `Senha recusada: ${raw}`;
+  }
+  return raw || "Não foi possível autenticar.";
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -37,14 +74,20 @@ function AuthPage() {
     setLoading(true);
     try {
       if (mode === "signup") {
+        if (!(await emailLiberado(email))) {
+          toast.error(
+            "Este e-mail ainda não foi liberado. Peça a um administrador para cadastrá-lo em Configurações > Equipe.",
+          );
+          return;
+        }
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: { emailRedirectTo: `${window.location.origin}/auth` },
         });
         if (error) throw error;
         if (!data.session) {
-          toast.success("Confira seu e-mail para confirmar a conta.");
+          toast.success("Conta criada. Confira seu e-mail para confirmar o acesso.");
           return;
         }
       } else {
@@ -53,7 +96,7 @@ function AuthPage() {
       }
       navigate({ to: "/dashboard", replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Não foi possível autenticar.");
+      toast.error(mensagemDeErro(err));
     } finally {
       setLoading(false);
     }
