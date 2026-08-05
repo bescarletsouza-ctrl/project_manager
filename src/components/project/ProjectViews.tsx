@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Flag,
   GripVertical,
   Pencil,
@@ -24,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteTask, duplicateTask, updateTask } from "@/lib/data";
+import { deleteTask, duplicateSection, duplicateTask, updateTask } from "@/lib/data";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -156,6 +157,16 @@ export function useSectionMutations(projectId: string, project: Project, automat
     onError: () => toast.error("Não foi possível remover a seção."),
   });
 
+  const dupSection = useMutation({
+    mutationFn: (id: string) => duplicateSection(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Seção duplicada.");
+    },
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+
   const addTask = useMutation({
     mutationFn: async (input: { title: string; sectionId: string | null; dueDate?: string | null }) => {
       const base: Record<string, unknown> = {
@@ -201,7 +212,16 @@ export function useSectionMutations(projectId: string, project: Project, automat
     onError: () => toast.error("Não foi possível reordenar as seções."),
   });
 
-  return { addSection, renameSection, removeSection, addTask, moveTask, reorderTasks, reorderSections };
+  return {
+    addSection,
+    renameSection,
+    removeSection,
+    dupSection,
+    addTask,
+    moveTask,
+    reorderTasks,
+    reorderSections,
+  };
 }
 
 type TaskDrag = { taskId: string; sectionId: string };
@@ -572,6 +592,13 @@ type SortKey = (typeof COLUMN_DEFS)[number]["id"] | "title";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
 const PRIORITIES_ORDER: Priority[] = ["urgente", "alta", "media", "baixa"];
+
+/** Rótulo humano da chave de ordenação, para o cabeçalho da lista achatada. */
+function sortLabel(key: SortKey): string {
+  const def = COLUMN_DEFS.find((c) => c.id === key);
+  if (def) return def.label.toLowerCase();
+  return key === "title" ? "nome" : key;
+}
 
 function sortValue(task: Task, key: SortKey, members: Member[]): string {
   switch (key) {
@@ -992,6 +1019,8 @@ function SectionHeader({
   onDragStart,
   onDragEnd,
   className,
+  startEditing = false,
+  onStopEditing,
 }: {
   section: Section;
   count: number;
@@ -1004,8 +1033,14 @@ function SectionHeader({
   onDragStart?: (() => void) | undefined;
   onDragEnd?: (() => void) | undefined;
   className?: string | undefined;
+  /** Força entrar em modo edição — usado pelo menu de contexto "Renomear". */
+  startEditing?: boolean | undefined;
+  onStopEditing?: (() => void) | undefined;
 }) {
   const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (startEditing) setEditing(true);
+  }, [startEditing]);
 
   return (
     <div
@@ -1026,10 +1061,14 @@ function SectionHeader({
             const v = e.target.value.trim();
             if (v.length >= 2 && v !== section.name) onRename(v);
             setEditing(false);
+            onStopEditing?.();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            if (e.key === "Escape") setEditing(false);
+            if (e.key === "Escape") {
+              setEditing(false);
+              onStopEditing?.();
+            }
           }}
           className="rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm font-semibold focus:outline-none"
         />
@@ -1143,7 +1182,67 @@ function useTaskSelection(tasks: Task[], projectId: string) {
   return { selected, toggleOne, allSelected, someSelected, toggleAll, clear, bulkMove, bulkPatch, bulkDelete };
 }
 
-/** Barra de ações em lote — só aparece quando há tarefas selecionadas. */
+/**
+ * Menu de contexto (botão direito) no cabeçalho de uma seção. Reusa as
+ * mutações do useSectionMutations em nível de callback — quem chama passa o
+ * que quer fazer, para o menu ficar reusável em Lista e Quadro sem duplicar
+ * a lógica de invalidação de cache que já roda lá.
+ */
+function SectionContextMenu({
+  section,
+  onRename,
+  onAddTask,
+  onDuplicate,
+  onRemove,
+  children,
+}: {
+  section: Section;
+  onRename: (() => void) | undefined;
+  onAddTask: (() => void) | undefined;
+  onDuplicate: (() => void) | undefined;
+  onRemove: (() => void) | undefined;
+  children: React.ReactNode;
+}) {
+  // Se nada faz sentido nessa seção (ex.: virtual "__sorted__" ou "sem seção"),
+  // desabilita o menu de contexto e devolve os filhos direto.
+  if (!onRename && !onAddTask && !onDuplicate && !onRemove) {
+    return <>{children}</>;
+  }
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        {onAddTask && (
+          <ContextMenuItem onSelect={onAddTask} className="gap-2 text-sm">
+            <Plus className="size-4" /> Adicionar tarefa
+          </ContextMenuItem>
+        )}
+        {onRename && (
+          <ContextMenuItem onSelect={onRename} className="gap-2 text-sm">
+            <Pencil className="size-4" /> Renomear
+          </ContextMenuItem>
+        )}
+        {onDuplicate && (
+          <ContextMenuItem onSelect={onDuplicate} className="gap-2 text-sm">
+            <Copy className="size-4" /> Duplicar seção
+          </ContextMenuItem>
+        )}
+        {onRemove && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => confirm(`Excluir a seção "${section.name}" e todas as tarefas?`) && onRemove()}
+              className="gap-2 text-sm text-destructive focus:text-destructive"
+            >
+              <Trash2 className="size-4" /> Excluir seção
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 /**
  * Menu de contexto (botão direito) para uma linha de tarefa. Compartilha o
  * mesmo conjunto de ações da SelectionBar em versão individual, mais Abrir e
@@ -1419,9 +1518,10 @@ export function ListView({
   sectionOf,
   onOpenTask,
 }: ViewProps) {
-  const { addSection, renameSection, removeSection, addTask, reorderTasks, reorderSections } =
+  const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
   const cols = useColumnWidths(projectId);
@@ -1477,10 +1577,15 @@ export function ListView({
     return list.slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
   };
 
-  const groups: Section[] = [
-    ...sections,
-    { id: "", project_id: projectId, name: "Sem seção", color: "slate", position: 999 },
-  ];
+  // Enquanto há ordenação por coluna ativa, a divisão em seções é escondida:
+  // o critério vale para o projeto inteiro. Sem esse achatamento, cada seção
+  // ordenava internamente e a percepção era de "só funciona em algumas".
+  const groups: Section[] = sort
+    ? [{ id: "__sorted__", project_id: projectId, name: `Ordenado por ${sortLabel(sort.key)}`, color: "slate", position: 0 }]
+    : [
+        ...sections,
+        { id: "", project_id: projectId, name: "Sem seção", color: "slate", position: 999 },
+      ];
 
   return (
     <div className="space-y-3">
@@ -1534,7 +1639,13 @@ export function ListView({
             />
 
             {groups.map((section) => {
-          const roots = applySort(tasks.filter((t) => sectionOf(t) === section.id && !t.parent_task_id));
+          // Com sort ativo, a seção virtual "__sorted__" agrega TODAS as tarefas
+          // raiz do projeto; sem sort, cada seção real filtra as suas.
+          const roots = applySort(
+            sort
+              ? tasks.filter((t) => !t.parent_task_id)
+              : tasks.filter((t) => sectionOf(t) === section.id && !t.parent_task_id),
+          );
           const listIds = roots.map((t) => t.id);
           if (!section.id && roots.length === 0) return null;
           const isCollapsed = collapsedSections[section.id] ?? false;
@@ -1553,22 +1664,54 @@ export function ListView({
               }}
               className={cn("border-b border-border last:border-b-0", dnd.overSection === section.id && "bg-brand/5")}
             >
-              <SectionHeader
+              <SectionContextMenu
                 section={section}
-                count={roots.length}
-                collapsed={isCollapsed}
-                onToggle={() => setCollapsedSections((s) => ({ ...s, [section.id]: !isCollapsed }))}
-                onRename={section.id ? (name) => renameSection.mutate({ id: section.id, name }) : undefined}
-                onRemove={
-                  section.id
-                    ? () => confirm(`Remover a seção "${section.name}"?`) && removeSection.mutate(section.id)
+                onRename={
+                  section.id && section.id !== "__sorted__"
+                    ? () => setRenamingSectionId(section.id)
                     : undefined
                 }
-                draggable={Boolean(section.id)}
-                onDragStart={() => section.id && dnd.setDragSection(section.id)}
-                onDragEnd={() => dnd.setDragSection(null)}
-                className="bg-secondary/40 px-3 py-2"
-              />
+                onAddTask={
+                  section.id !== "__sorted__"
+                    ? () => addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null })
+                    : undefined
+                }
+                onDuplicate={
+                  section.id && section.id !== "__sorted__"
+                    ? () => dupSection.mutate(section.id)
+                    : undefined
+                }
+                onRemove={
+                  section.id && section.id !== "__sorted__"
+                    ? () => removeSection.mutate(section.id)
+                    : undefined
+                }
+              >
+                <SectionHeader
+                  section={section}
+                  count={roots.length}
+                  collapsed={isCollapsed}
+                  onToggle={() => setCollapsedSections((s) => ({ ...s, [section.id]: !isCollapsed }))}
+                  onRename={
+                    section.id && section.id !== "__sorted__"
+                      ? (name) => renameSection.mutate({ id: section.id, name })
+                      : undefined
+                  }
+                  onRemove={
+                    section.id && section.id !== "__sorted__"
+                      ? () => confirm(`Remover a seção "${section.name}"?`) && removeSection.mutate(section.id)
+                      : undefined
+                  }
+                  draggable={Boolean(section.id) && section.id !== "__sorted__"}
+                  onDragStart={() =>
+                    section.id && section.id !== "__sorted__" && dnd.setDragSection(section.id)
+                  }
+                  onDragEnd={() => dnd.setDragSection(null)}
+                  className="bg-secondary/40 px-3 py-2"
+                  startEditing={renamingSectionId === section.id}
+                  onStopEditing={() => setRenamingSectionId(null)}
+                />
+              </SectionContextMenu>
 
               {!isCollapsed && (
                 <>
@@ -1706,10 +1849,12 @@ export function ListView({
                     );
                   })}
 
-                  <AddTaskRow
-                    className="border-t border-border/60"
-                    onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null })}
-                  />
+                  {section.id !== "__sorted__" && (
+                    <AddTaskRow
+                      className="border-t border-border/60"
+                      onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null })}
+                    />
+                  )}
                 </>
               )}
             </section>
@@ -1736,7 +1881,7 @@ export function BoardView({
   sectionOf,
   onOpenTask,
 }: ViewProps) {
-  const { addSection, renameSection, removeSection, addTask, reorderTasks, reorderSections } =
+  const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations);
   const dnd = useDnd({
     sections,
@@ -1745,6 +1890,7 @@ export function BoardView({
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
+  const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
 
   const unsectioned = tasks.filter((t) => !sectionOf(t) && !t.parent_task_id);
   const boardSections: Section[] =
@@ -1787,22 +1933,32 @@ export function BoardView({
               dnd.overSection === section.id && "ring-2 ring-brand/40",
             )}
           >
-            <SectionHeader
+            <SectionContextMenu
               section={section}
-              count={list.length}
-              collapsed={false}
-              onToggle={() => undefined}
-              onRename={section.id ? (name) => renameSection.mutate({ id: section.id, name }) : undefined}
-              onRemove={
-                section.id
-                  ? () => confirm(`Remover a seção "${section.name}"?`) && removeSection.mutate(section.id)
-                  : undefined
-              }
-              draggable={Boolean(section.id)}
-              onDragStart={() => section.id && dnd.setDragSection(section.id)}
-              onDragEnd={() => dnd.setDragSection(null)}
-              className="px-1.5 py-1"
-            />
+              onRename={section.id ? () => setRenamingSectionId(section.id) : undefined}
+              onAddTask={() => addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null })}
+              onDuplicate={section.id ? () => dupSection.mutate(section.id) : undefined}
+              onRemove={section.id ? () => removeSection.mutate(section.id) : undefined}
+            >
+              <SectionHeader
+                section={section}
+                count={list.length}
+                collapsed={false}
+                onToggle={() => undefined}
+                onRename={section.id ? (name) => renameSection.mutate({ id: section.id, name }) : undefined}
+                onRemove={
+                  section.id
+                    ? () => confirm(`Remover a seção "${section.name}"?`) && removeSection.mutate(section.id)
+                    : undefined
+                }
+                draggable={Boolean(section.id)}
+                onDragStart={() => section.id && dnd.setDragSection(section.id)}
+                onDragEnd={() => dnd.setDragSection(null)}
+                className="px-1.5 py-1"
+                startEditing={renamingSectionId === section.id}
+                onStopEditing={() => setRenamingSectionId(null)}
+              />
+            </SectionContextMenu>
 
             <div className="mt-1 flex flex-col gap-2">
               {list.map((t) => {

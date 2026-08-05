@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronsLeft,
+  Copy,
   FolderKanban,
   Gauge,
   Inbox,
@@ -13,14 +14,17 @@ import {
   LogOut,
   Menu,
   Moon,
+  Pencil,
   Plus,
   Search,
   Settings,
   Sun,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Avatar } from "@/components/Avatar";
 import { NewProjectDialog, NewTaskDialog } from "@/components/dialogs";
@@ -32,7 +36,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { projectsQuery, tasksQuery } from "@/lib/data";
+import {
+  deleteProject,
+  duplicateProject,
+  projectsQuery,
+  tasksQuery,
+  updateProject,
+} from "@/lib/data";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { notificationsQuery, portfoliosQuery } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { useAccessRole } from "@/lib/access";
@@ -138,6 +155,141 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 /* ---------------------------- sidebar ---------------------------- */
+
+/**
+ * Item da sidebar com menu de contexto (botão direito). Renomear abre um
+ * campo inline no lugar do nome. Excluir/duplicar aparecem só para admin —
+ * a política de RLS já barra o resto, mas é bom não mostrar botão que erra.
+ */
+function SidebarProjectItem({ project, active }: { project: Project; active: boolean }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { isAdmin } = useAccessRole();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(project.name);
+
+  useEffect(() => setDraft(project.name), [project.name]);
+
+  const rename = useMutation({
+    mutationFn: (name: string) => updateProject(project.id, { name }),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      setEditing(false);
+    },
+    onError: () => {
+      toast.error("Não foi possível renomear o projeto.");
+      setEditing(false);
+    },
+  });
+
+  const dup = useMutation({
+    mutationFn: () => duplicateProject(project.id),
+    onSuccess: (newId) => {
+      qc.invalidateQueries();
+      toast.success("Projeto duplicado.");
+      navigate({ to: "/projetos/$projectId", params: { projectId: newId } });
+    },
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteProject(project.id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Projeto excluído.");
+      if (active) navigate({ to: "/projetos" });
+    },
+    onError: () => toast.error("Não foi possível excluir o projeto."),
+  });
+
+  const commitRename = () => {
+    const v = draft.trim();
+    if (!v) {
+      toast.error("O nome do projeto não pode ficar vazio.");
+      setDraft(project.name);
+      setEditing(false);
+      return;
+    }
+    if (v === project.name) {
+      setEditing(false);
+      return;
+    }
+    rename.mutate(v);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-md px-2 py-1 text-[13px]">
+        <span className={cn("size-2.5 shrink-0 rounded-[3px]", dotClass(project.color))} />
+        <input
+          autoFocus
+          value={draft}
+          maxLength={120}
+          disabled={rename.isPending}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitRename();
+            }
+            if (e.key === "Escape") {
+              setDraft(project.name);
+              setEditing(false);
+            }
+          }}
+          className="min-w-0 flex-1 rounded border border-ring bg-background px-1 py-0.5 text-[13px] outline-none disabled:opacity-60"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <Link
+          to="/projetos/$projectId"
+          params={{ projectId: project.id }}
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+            active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+          )}
+        >
+          <span className={cn("size-2.5 shrink-0 rounded-[3px]", dotClass(project.color))} />
+          <span className="truncate">{project.name}</span>
+        </Link>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem
+          onSelect={() => navigate({ to: "/projetos/$projectId", params: { projectId: project.id } })}
+          className="gap-2 text-sm"
+        >
+          <FolderKanban className="size-4" /> Abrir
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => setEditing(true)} className="gap-2 text-sm">
+          <Pencil className="size-4" /> Renomear
+        </ContextMenuItem>
+        {isAdmin && (
+          <>
+            <ContextMenuItem onSelect={() => dup.mutate()} className="gap-2 text-sm">
+              <Copy className="size-4" /> Duplicar
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() =>
+                confirm(`Excluir "${project.name}" e todas as tarefas?`) ? remove.mutate() : undefined
+              }
+              className="gap-2 text-sm text-destructive focus:text-destructive"
+            >
+              <Trash2 className="size-4" /> Excluir
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 function SidebarContent({
   collapsed,
@@ -259,18 +411,7 @@ function SidebarContent({
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum projeto ainda</p>
               )}
               {projects.slice(0, 12).map((p) => (
-                <Link
-                  key={p.id}
-                  to="/projetos/$projectId"
-                  params={{ projectId: p.id }}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
-                    pathname === `/projetos/${p.id}` && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-                  )}
-                >
-                  <span className={cn("size-2.5 shrink-0 rounded-[3px]", dotClass(p.color))} />
-                  <span className="truncate">{p.name}</span>
-                </Link>
+                <SidebarProjectItem key={p.id} project={p} active={pathname === `/projetos/${p.id}`} />
               ))}
               <Link
                 to="/projetos"

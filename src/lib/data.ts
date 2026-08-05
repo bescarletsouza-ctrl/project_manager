@@ -168,6 +168,160 @@ export async function duplicateTask(sourceId: string) {
   }
 }
 
+/**
+ * Duplica uma seção dentro do mesmo projeto: cria "Cópia de <nome>" e clona
+ * todas as tarefas raiz da seção (com subtarefas e valores de campos
+ * personalizados). Não copia comentários/anexos/histórico. Rollback total ao
+ * falhar — se a inserção de qualquer tarefa quebrar, a seção nova é apagada
+ * (ON DELETE CASCADE derruba o que já foi copiado).
+ */
+export async function duplicateSection(sourceId: string) {
+  const { data: sourceRaw, error: readErr } = await supabase
+    .from("sections" as never)
+    .select("id, project_id, name, color, position")
+    .eq("id", sourceId)
+    .single();
+  if (readErr) throw readErr;
+  const source = sourceRaw as { id: string; project_id: string; name: string; color: string; position: number };
+
+  const { data: created, error: createErr } = await supabase
+    .from("sections" as never)
+    .insert({
+      project_id: source.project_id,
+      name: `Cópia de ${source.name}`,
+      color: source.color,
+      position: source.position + 1,
+    } as never)
+    .select("id")
+    .single();
+  if (createErr) throw createErr;
+  const newSectionId = (created as { id: string }).id;
+
+  try {
+    const { data: rootsRaw, error: rootsErr } = await supabase
+      .from("tasks" as never)
+      .select("*")
+      .eq("section_id", sourceId)
+      .is("parent_task_id", null)
+      .order("position", { ascending: true });
+    if (rootsErr) throw rootsErr;
+
+    const roots = (rootsRaw ?? []) as Task[];
+    const rootIdMap = new Map<string, string>();
+
+    for (const t of roots) {
+      const clone = {
+        title: t.title,
+        description: t.description,
+        project_id: t.project_id,
+        section_id: newSectionId,
+        department_id: t.department_id,
+        client_id: t.client_id,
+        assignee_id: t.assignee_id,
+        status: t.status,
+        priority: t.priority,
+        complexity: t.complexity,
+        task_type: t.task_type,
+        due_date: t.due_date,
+        start_date: t.start_date,
+        is_milestone: t.is_milestone,
+        tags: t.tags,
+        sprint: t.sprint,
+        position: t.position,
+        parent_task_id: null,
+        completed: false,
+        reopen_count: 0,
+        review_count: 0,
+        block_reason: null,
+      };
+      const { data: createdRoot, error } = await supabase
+        .from("tasks" as never)
+        .insert(clone as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      rootIdMap.set(t.id, (createdRoot as { id: string }).id);
+    }
+
+    if (rootIdMap.size > 0) {
+      // Subtarefas dessas raízes — puxa todas de uma vez, depois insere com
+      // parent_task_id remapeado.
+      const { data: subsRaw, error: subsErr } = await supabase
+        .from("tasks" as never)
+        .select("*")
+        .in("parent_task_id", [...rootIdMap.keys()])
+        .order("position", { ascending: true });
+      if (subsErr) throw subsErr;
+
+      const subIdMap = new Map<string, string>();
+      for (const s of (subsRaw ?? []) as Task[]) {
+        const parentNew = s.parent_task_id ? rootIdMap.get(s.parent_task_id) : null;
+        if (!parentNew) continue;
+        const clone = {
+          title: s.title,
+          description: s.description,
+          project_id: s.project_id,
+          section_id: newSectionId,
+          department_id: s.department_id,
+          client_id: s.client_id,
+          assignee_id: s.assignee_id,
+          status: s.status,
+          priority: s.priority,
+          complexity: s.complexity,
+          task_type: s.task_type,
+          due_date: s.due_date,
+          start_date: s.start_date,
+          is_milestone: s.is_milestone,
+          tags: s.tags,
+          sprint: s.sprint,
+          position: s.position,
+          parent_task_id: parentNew,
+          completed: false,
+          reopen_count: 0,
+          review_count: 0,
+          block_reason: null,
+        };
+        const { data: createdSub, error } = await supabase
+          .from("tasks" as never)
+          .insert(clone as never)
+          .select("id")
+          .single();
+        if (error) throw error;
+        subIdMap.set(s.id, (createdSub as { id: string }).id);
+      }
+
+      // Valores de campos personalizados (raízes + subtarefas copiadas).
+      const originalIds = [...rootIdMap.keys(), ...subIdMap.keys()];
+      const { data: valuesData, error: valuesErr } = await supabase
+        .from("task_field_values" as never)
+        .select("task_id, field_id, value")
+        .in("task_id", originalIds);
+      if (valuesErr) throw valuesErr;
+
+      const rows = ((valuesData ?? []) as { task_id: string; field_id: string; value: string | null }[])
+        .map((v) => {
+          const newId = rootIdMap.get(v.task_id) ?? subIdMap.get(v.task_id);
+          return newId ? { task_id: newId, field_id: v.field_id, value: v.value } : null;
+        })
+        .filter((r): r is { task_id: string; field_id: string; value: string | null } => Boolean(r));
+
+      if (rows.length > 0) {
+        const { error } = await supabase.from("task_field_values" as never).insert(rows as never);
+        if (error) throw error;
+      }
+    }
+
+    return newSectionId;
+  } catch (err) {
+    try {
+      await supabase.from("sections" as never).delete().eq("id", newSectionId);
+    } catch {
+      /* rollback silencioso, o erro original é o que importa */
+    }
+    throw err;
+  }
+}
+
 /** Cria o projeto e devolve o id, para redirecionar ou criar seções padrão. */
 export async function createProject(payload: Record<string, unknown>) {
   const { data, error } = await supabase
