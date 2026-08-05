@@ -520,8 +520,8 @@ function ResizeHandle({
       }}
       className={cn(
         "absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize touch-none",
-        "after:absolute after:top-1 after:bottom-1 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors",
-        active ? "after:bg-brand" : "after:bg-transparent hover:after:bg-input",
+        "after:absolute after:top-1 after:bottom-1 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border after:transition-colors",
+        active ? "after:bg-brand" : "hover:after:bg-input",
       )}
     />
   );
@@ -591,7 +591,7 @@ function TaskHeader({
       <div
         key={id}
         style={{ width: start }}
-        className={cn("relative shrink-0 items-center", SHOW[bp] ?? SHOW["none"])}
+        className={cn("relative shrink-0 items-center self-stretch", SHOW[bp] ?? SHOW["none"])}
       >
         {sortKey ? (
           <button
