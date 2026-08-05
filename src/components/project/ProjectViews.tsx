@@ -419,6 +419,8 @@ const SHOW: Record<string, string> = {
 const CUSTOM_FIELD_WIDTH = 116;
 const MIN_COLUMN_WIDTH = 64;
 const MAX_COLUMN_WIDTH = 480;
+/** Piso da coluna de nome: sem isso, colunas largas o suficiente a espremem a ilegibilidade. */
+const TITLE_MIN_WIDTH = 220;
 
 const defaultWidth = (id: string) =>
   COLUMN_DEFS.find((c) => c.id === id)?.width ?? CUSTOM_FIELD_WIDTH;
@@ -623,6 +625,7 @@ function TaskHeader({
       <button
         type="button"
         onClick={() => onSort("title")}
+        style={{ minWidth: TITLE_MIN_WIDTH }}
         className={cn(
           "group flex min-w-0 flex-1 items-center gap-1",
           labelCls,
@@ -1058,10 +1061,18 @@ export function ListView({
 
   return (
     <div className="space-y-3">
+      {/*
+        overflow-x-auto: quando a soma das larguras (redimensionadas à mão)
+        passa do espaço disponível, aparece scroll horizontal em vez de cortar
+        colunas. w-fit + min-w-full faz o conteúdo assumir sua largura natural
+        quando ela for maior que o card, e preencher o card quando for menor.
+      */}
       <div className="card-surface overflow-hidden">
-        <TaskHeader columns={columns} fields={visibleFields} sort={sort} onSort={toggleSort} cols={cols} />
+        <div className="overflow-x-auto">
+          <div className="w-fit min-w-full">
+            <TaskHeader columns={columns} fields={visibleFields} sort={sort} onSort={toggleSort} cols={cols} />
 
-        {groups.map((section) => {
+            {groups.map((section) => {
           const roots = applySort(tasks.filter((t) => sectionOf(t) === section.id && !t.parent_task_id));
           const listIds = roots.map((t) => t.id);
           if (!section.id && roots.length === 0) return null;
@@ -1124,6 +1135,7 @@ export function ListView({
                           <TaskToggle task={t} automations={automations} />
                           <button
                             onClick={() => onOpenTask(t)}
+                            style={{ minWidth: TITLE_MIN_WIDTH }}
                             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                           >
                             {subs.length > 0 && (
@@ -1175,6 +1187,7 @@ export function ListView({
                               <TaskToggle task={s} automations={automations} size="sm" />
                               <button
                                 onClick={() => onOpenTask(s)}
+                                style={{ minWidth: TITLE_MIN_WIDTH }}
                                 className={cn(
                                   "min-w-0 flex-1 truncate text-left text-sm",
                                   s.status === "concluido" && "text-muted-foreground line-through",
@@ -1199,6 +1212,8 @@ export function ListView({
             </section>
           );
         })}
+          </div>
+        </div>
       </div>
 
       <AddInline placeholder="Adicionar seção" onAdd={(name) => addSection.mutate(name)} />
