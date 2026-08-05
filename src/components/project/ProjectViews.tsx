@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu } from "@/components/ui-bits";
@@ -564,12 +565,18 @@ function TaskHeader({
   sort,
   onSort,
   cols,
+  allSelected,
+  someSelected,
+  onToggleAll,
 }: {
   columns: string[];
   fields: CustomField[];
   sort: SortState;
   onSort: (key: SortKey) => void;
   cols: ColumnWidths;
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggleAll: () => void;
 }) {
   const arrow = (key: SortKey) =>
     sort?.key === key ? (
@@ -621,6 +628,18 @@ function TaskHeader({
   return (
     <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background px-3 py-2">
       <span className="w-4 shrink-0" />
+      <span className="flex w-4 shrink-0 items-center justify-center">
+        <input
+          type="checkbox"
+          aria-label="Selecionar todas as tarefas"
+          checked={allSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = someSelected && !allSelected;
+          }}
+          onChange={onToggleAll}
+          className="size-3.5 shrink-0 cursor-pointer"
+        />
+      </span>
       <span className="size-[18px] shrink-0" />
       <button
         type="button"
@@ -1011,6 +1030,190 @@ function SectionHeader({
   );
 }
 
+/**
+ * Seleção múltipla da lista: quais ids estão marcados, seleção total/parcial
+ * para o checkbox do cabeçalho, e as ações em lote (mover, excluir, definir
+ * responsável/prioridade/prazo). `tasks` é a lista já filtrada que a view
+ * recebeu — "selecionar tudo" e a contagem trabalham sobre ela, não sobre o
+ * projeto inteiro.
+ */
+function useTaskSelection(tasks: Task[], projectId: string) {
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const allIds = tasks.map((t) => t.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someSelected = allIds.some((id) => selected.has(id));
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allIds));
+  const clear = () => setSelected(new Set());
+
+  const invalidate = () => qc.invalidateQueries();
+
+  /** Move para outra seção — mesmo caminho que o drag-and-drop já usa (task_projects),
+   * mais um espelho em tasks.section_id para tarefas sem vínculo em task_projects. */
+  const bulkMove = useMutation({
+    mutationFn: (sectionId: string) =>
+      Promise.all(
+        [...selected].map(async (id) => {
+          await setTaskProjectSection(id, projectId, sectionId || null);
+          await updateTask(id, { section_id: sectionId || null });
+        }),
+      ),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tarefas movidas.");
+    },
+    onError: () => toast.error("Não foi possível mover as tarefas selecionadas."),
+  });
+
+  /** Responsável, prioridade ou prazo em lote — mesmo patch para todas as selecionadas. */
+  const bulkPatch = useMutation({
+    mutationFn: (patch: Partial<Task>) => Promise.all([...selected].map((id) => updateTask(id, patch))),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tarefas atualizadas.");
+    },
+    onError: () => toast.error("Não foi possível atualizar as tarefas selecionadas."),
+  });
+
+  const bulkDelete = useMutation({
+    mutationFn: () => Promise.all([...selected].map((id) => deleteTask(id))),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tarefas excluídas.");
+      clear();
+    },
+    onError: () => toast.error("Não foi possível excluir as tarefas selecionadas."),
+  });
+
+  return { selected, toggleOne, allSelected, someSelected, toggleAll, clear, bulkMove, bulkPatch, bulkDelete };
+}
+
+/** Barra de ações em lote — só aparece quando há tarefas selecionadas. */
+function SelectionBar({
+  count,
+  sections,
+  members,
+  onMove,
+  onSetAssignee,
+  onSetPriority,
+  onSetDueDate,
+  onDelete,
+  onClear,
+}: {
+  count: number;
+  sections: Section[];
+  members: Member[];
+  onMove: (sectionId: string) => void;
+  onSetAssignee: (memberId: string) => void;
+  onSetPriority: (priority: string) => void;
+  onSetDueDate: (date: string) => void;
+  onDelete: () => void;
+  onClear: () => void;
+}) {
+  const [moveTo, setMoveTo] = useState("");
+  const [assignee, setAssignee] = useState("");
+  const [priority, setPriority] = useState("");
+
+  return (
+    <div className="card-raised flex flex-wrap items-center gap-2 border-brand/30 bg-brand/5 px-3 py-2">
+      <span className="text-sm font-medium">{count} selecionada{count === 1 ? "" : "s"}</span>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Mover para seção"
+          value={moveTo}
+          onChange={(e) => {
+            const v = e.target.value;
+            setMoveTo(v);
+            if (v) {
+              onMove(v);
+              setMoveTo("");
+            }
+          }}
+          className="field h-8 w-auto"
+        >
+          <option value="">Mover para…</option>
+          {sections.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Definir responsável"
+          value={assignee}
+          onChange={(e) => {
+            const v = e.target.value;
+            setAssignee(v);
+            onSetAssignee(v);
+            setAssignee("");
+          }}
+          className="field h-8 w-auto"
+        >
+          <option value="" disabled>
+            Responsável…
+          </option>
+          <option value="__none__">Sem responsável</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Definir prioridade"
+          value={priority}
+          onChange={(e) => {
+            const v = e.target.value;
+            setPriority(v);
+            if (v) {
+              onSetPriority(v);
+              setPriority("");
+            }
+          }}
+          className="field h-8 w-auto"
+        >
+          <option value="" disabled>
+            Prioridade…
+          </option>
+          {PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {PRIORITY_LABEL[p]}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          aria-label="Definir prazo"
+          className="field h-8 w-auto"
+          onChange={(e) => {
+            if (e.target.value) onSetDueDate(e.target.value);
+            e.target.value = "";
+          }}
+        />
+        <button
+          onClick={onDelete}
+          className="btn btn-ghost gap-1.5 px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="size-3.5" /> Excluir
+        </button>
+        <button onClick={onClear} aria-label="Cancelar seleção" className="btn btn-ghost p-1.5">
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------- LISTA ------------------------- */
 
 export function ListView({
@@ -1036,6 +1239,17 @@ export function ListView({
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
   const cols = useColumnWidths(projectId);
+  const {
+    selected,
+    toggleOne,
+    allSelected,
+    someSelected,
+    toggleAll,
+    clear: clearSelection,
+    bulkMove,
+    bulkPatch,
+    bulkDelete,
+  } = useTaskSelection(tasks, projectId);
 
   const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
   const anyCustomPicked = columns.some((c) => c.startsWith("cf:"));
@@ -1061,6 +1275,22 @@ export function ListView({
 
   return (
     <div className="space-y-3">
+      {someSelected && (
+        <SelectionBar
+          count={selected.size}
+          sections={sections}
+          members={members}
+          onMove={(sectionId) => bulkMove.mutate(sectionId)}
+          onSetAssignee={(id) => bulkPatch.mutate({ assignee_id: id === "__none__" ? null : id })}
+          onSetPriority={(priority) => bulkPatch.mutate({ priority: priority as Priority })}
+          onSetDueDate={(date) => bulkPatch.mutate({ due_date: date })}
+          onDelete={() =>
+            confirm(`Excluir ${selected.size} tarefa(s) selecionada(s)?`) && bulkDelete.mutate()
+          }
+          onClear={clearSelection}
+        />
+      )}
+
       {/*
         overflow-x-auto: quando a soma das larguras (redimensionadas à mão)
         passa do espaço disponível, aparece scroll horizontal em vez de cortar
@@ -1070,7 +1300,16 @@ export function ListView({
       <div className="card-surface overflow-hidden">
         <div className="overflow-x-auto">
           <div className="w-fit min-w-full">
-            <TaskHeader columns={columns} fields={visibleFields} sort={sort} onSort={toggleSort} cols={cols} />
+            <TaskHeader
+              columns={columns}
+              fields={visibleFields}
+              sort={sort}
+              onSort={toggleSort}
+              cols={cols}
+              allSelected={allSelected}
+              someSelected={someSelected}
+              onToggleAll={toggleAll}
+            />
 
             {groups.map((section) => {
           const roots = applySort(tasks.filter((t) => sectionOf(t) === section.id && !t.parent_task_id));
@@ -1132,6 +1371,15 @@ export function ListView({
                           className="group flex items-center gap-2 border-t border-border/60 px-3 py-1.5 hover:bg-secondary/40"
                         >
                           <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground opacity-0 group-hover:opacity-50 active:cursor-grabbing" />
+                          <span className="flex w-4 shrink-0 items-center justify-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`Selecionar ${t.title}`}
+                              checked={selected.has(t.id)}
+                              onChange={() => toggleOne(t.id)}
+                              className="size-3.5 shrink-0 cursor-pointer"
+                            />
+                          </span>
                           <TaskToggle task={t} automations={automations} />
                           <button
                             onClick={() => onOpenTask(t)}
@@ -1184,6 +1432,15 @@ export function ListView({
                               key={s.id}
                               className="group flex items-center gap-2 border-t border-border/60 bg-secondary/20 py-1.5 pr-3 pl-11"
                             >
+                              <span className="flex w-4 shrink-0 items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Selecionar ${s.title}`}
+                                  checked={selected.has(s.id)}
+                                  onChange={() => toggleOne(s.id)}
+                                  className="size-3.5 shrink-0 cursor-pointer"
+                                />
+                              </span>
                               <TaskToggle task={s} automations={automations} size="sm" />
                               <button
                                 onClick={() => onOpenTask(s)}
