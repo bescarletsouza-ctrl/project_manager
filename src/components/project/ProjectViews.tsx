@@ -626,9 +626,14 @@ function TaskHeader({
   };
 
   return (
-    <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background px-3 py-2">
+    <div className="group sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background px-3 py-2">
       <span className="w-4 shrink-0" />
-      <span className="flex w-4 shrink-0 items-center justify-center">
+      <span
+        className={cn(
+          "flex w-4 shrink-0 items-center justify-center transition-opacity",
+          someSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+        )}
+      >
         <input
           type="checkbox"
           aria-label="Selecionar todas as tarefas"
@@ -1371,7 +1376,12 @@ export function ListView({
                           className="group flex items-center gap-2 border-t border-border/60 px-3 py-1.5 hover:bg-secondary/40"
                         >
                           <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground opacity-0 group-hover:opacity-50 active:cursor-grabbing" />
-                          <span className="flex w-4 shrink-0 items-center justify-center">
+                          <span
+                            className={cn(
+                              "flex w-4 shrink-0 items-center justify-center transition-opacity",
+                              someSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+                            )}
+                          >
                             <input
                               type="checkbox"
                               aria-label={`Selecionar ${t.title}`}
@@ -1432,7 +1442,12 @@ export function ListView({
                               key={s.id}
                               className="group flex items-center gap-2 border-t border-border/60 bg-secondary/20 py-1.5 pr-3 pl-11"
                             >
-                              <span className="flex w-4 shrink-0 items-center justify-center">
+                              <span
+                                className={cn(
+                                  "flex w-4 shrink-0 items-center justify-center transition-opacity",
+                                  someSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+                                )}
+                              >
                                 <input
                                   type="checkbox"
                                   aria-label={`Selecionar ${s.title}`}
