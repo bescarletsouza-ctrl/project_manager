@@ -8,6 +8,7 @@ import {
   GanttChartSquare,
   LayoutGrid,
   List,
+  Pencil,
   Search,
   Settings2,
   SlidersHorizontal,
@@ -85,6 +86,97 @@ const PANELS: { id: ViewId; label: string; icon: React.ComponentType<{ className
   { id: "auto", label: "Automações", icon: Zap },
   { id: "config", label: "Configuração", icon: Settings2 },
 ];
+
+/**
+ * Nome do projeto editável direto no cabeçalho — sem abrir "Editar projeto".
+ * Manda só {name} no patch (as outras configurações não são tocadas).
+ */
+function EditableProjectName({ project, canEdit }: { project: Project; canEdit: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(project.name);
+
+  const save = useMutation({
+    mutationFn: (name: string) => updateProject(project.id, { name }),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      setEditing(false);
+    },
+    onError: () => {
+      toast.error("Não foi possível renomear o projeto.");
+      setEditing(false);
+    },
+  });
+
+  const commit = () => {
+    if (save.isPending) return;
+    const trimmed = value.trim();
+    if (!trimmed) {
+      toast.error("O nome do projeto não pode ficar vazio.");
+      setValue(project.name);
+      setEditing(false);
+      return;
+    }
+    if (trimmed === project.name) {
+      setEditing(false);
+      return;
+    }
+    save.mutate(trimmed);
+  };
+
+  const cancel = () => {
+    setValue(project.name);
+    setEditing(false);
+  };
+
+  if (!canEdit) {
+    return <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>;
+  }
+
+  if (editing) {
+    return (
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <input
+          autoFocus
+          value={value}
+          maxLength={120}
+          disabled={save.isPending}
+          aria-label="Nome do projeto"
+          onChange={(e) => setValue(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cancel();
+            }
+          }}
+          className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-xl font-semibold tracking-tight outline-none disabled:opacity-60"
+        />
+        {save.isPending && <span className="shrink-0 text-xs text-muted-foreground">Salvando…</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setValue(project.name);
+        setEditing(true);
+      }}
+      title="Clique para renomear"
+      className="group -mx-1.5 flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-secondary"
+    >
+      <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
+      <Pencil className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+    </button>
+  );
+}
 
 function ProjectDetail() {
   const { projectId } = Route.useParams();
@@ -212,8 +304,8 @@ function ProjectDetail() {
           >
             {project.name.slice(0, 1).toUpperCase()}
           </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
+          <div className="min-w-0 flex-1">
+            <EditableProjectName project={project} canEdit={hasAccess} />
             <p className="text-xs text-muted-foreground">
               {health.done} de {health.total} tarefas · {health.progress}% concluído
               {project.due_date ? ` · entrega ${new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
