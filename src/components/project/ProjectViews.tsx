@@ -24,7 +24,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteTask, updateTask } from "@/lib/data";
+import { deleteTask, duplicateTask, updateTask } from "@/lib/data";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   createSection,
   createTaskLinked,
@@ -481,6 +491,36 @@ function useColumnWidths(projectId: string) {
 }
 
 type ColumnWidths = ReturnType<typeof useColumnWidths>;
+
+/**
+ * Preferência por projeto: se a lista respeita a ordem manual (definida pelo
+ * arraste, salva em tasks.position) ou reordena tudo por data de criação.
+ * O default é false — a ordem por criação é a que o produto pediu como padrão.
+ */
+function useManualOrderPreference(projectId: string): [boolean, (v: boolean) => void] {
+  const storageKey = `fluxo:manual-order:${projectId}`;
+  const [manual, setManual] = useState(false);
+
+  useEffect(() => {
+    try {
+      setManual(localStorage.getItem(storageKey) === "1");
+    } catch {
+      setManual(false);
+    }
+  }, [storageKey]);
+
+  const update = (v: boolean) => {
+    setManual(v);
+    try {
+      if (v) localStorage.setItem(storageKey, "1");
+      else localStorage.removeItem(storageKey);
+    } catch {
+      /* modo privado ou cota cheia: só afeta esta sessão */
+    }
+  };
+
+  return [manual, update];
+}
 
 /** Alça de 6px na borda direita da coluna. */
 function ResizeHandle({
@@ -1104,6 +1144,152 @@ function useTaskSelection(tasks: Task[], projectId: string) {
 }
 
 /** Barra de ações em lote — só aparece quando há tarefas selecionadas. */
+/**
+ * Menu de contexto (botão direito) para uma linha de tarefa. Compartilha o
+ * mesmo conjunto de ações da SelectionBar em versão individual, mais Abrir e
+ * Duplicar. Se a tarefa não tem projeto, "Mover para seção" some.
+ */
+function TaskContextMenu({
+  task,
+  members,
+  sections,
+  onOpen,
+  children,
+}: {
+  task: Task;
+  members: Member[];
+  sections: Section[];
+  onOpen: () => void;
+  children: React.ReactNode;
+}) {
+  const qc = useQueryClient();
+
+  const patch = useMutation({
+    mutationFn: (input: Partial<Task>) => updateTask(task.id, input),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível atualizar a tarefa."),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteTask(task.id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Tarefa excluída.");
+    },
+    onError: () => toast.error("Não foi possível excluir a tarefa."),
+  });
+
+  const duplicate = useMutation({
+    mutationFn: () => duplicateTask(task.id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Tarefa duplicada.");
+    },
+    onError: () => toast.error("Não foi possível duplicar a tarefa."),
+  });
+
+  const projectSections = sections.filter((s) => s.project_id === task.project_id);
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem onSelect={onOpen} className="gap-2 text-sm">
+          Abrir tarefa
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => duplicate.mutate()} className="gap-2 text-sm">
+          Duplicar
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
+        {projectSections.length > 0 && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-sm">Mover para</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="max-h-64 w-56 overflow-y-auto">
+              {projectSections.map((s) => (
+                <ContextMenuItem
+                  key={s.id}
+                  onSelect={() => patch.mutate({ section_id: s.id })}
+                  className="gap-2 text-sm"
+                >
+                  {s.name}
+                  {task.section_id === s.id && <Check className="ml-auto size-3.5" />}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="gap-2 text-sm">Responsável</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="max-h-64 w-56 overflow-y-auto">
+            <ContextMenuItem onSelect={() => patch.mutate({ assignee_id: null })} className="gap-2 text-sm">
+              Sem responsável
+              {!task.assignee_id && <Check className="ml-auto size-3.5" />}
+            </ContextMenuItem>
+            {members.map((m) => (
+              <ContextMenuItem
+                key={m.id}
+                onSelect={() => patch.mutate({ assignee_id: m.id })}
+                className="gap-2 text-sm"
+              >
+                <Avatar name={m.name} color={m.avatar_color} size="xs" />
+                <span className="truncate">{m.name}</span>
+                {task.assignee_id === m.id && <Check className="ml-auto size-3.5" />}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="gap-2 text-sm">Prioridade</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-40">
+            {PRIORITIES.map((p) => (
+              <ContextMenuItem
+                key={p}
+                onSelect={() => patch.mutate({ priority: p })}
+                className="gap-2 text-sm"
+              >
+                {PRIORITY_LABEL[p]}
+                {task.priority === p && <Check className="ml-auto size-3.5" />}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            // Nativo: pequena camada de input flutuante seria over-engineering aqui.
+            // window.prompt cobre o caso rápido; para escolha visual, tem o painel lateral.
+            const current = task.due_date ?? "";
+            const next = window.prompt("Prazo (AAAA-MM-DD, vazio para remover):", current);
+            if (next === null) return;
+            const trimmed = next.trim();
+            if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+              toast.error("Data inválida. Use o formato AAAA-MM-DD.");
+              return;
+            }
+            patch.mutate({ due_date: trimmed || null });
+          }}
+          className="gap-2 text-sm"
+        >
+          Prazo…
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => confirm(`Excluir a tarefa "${task.title}"?`) && remove.mutate()}
+          className="gap-2 text-sm text-destructive focus:text-destructive"
+        >
+          <Trash2 className="size-4" /> Excluir
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function SelectionBar({
   count,
   sections,
@@ -1235,15 +1421,22 @@ export function ListView({
 }: ViewProps) {
   const { addSection, renameSection, removeSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations);
-  const dnd = useDnd({
-    sections,
-    reorderSections: (ids) => reorderSections.mutate(ids),
-    reorderTasks: (input) => reorderTasks.mutate(input),
-  });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
   const cols = useColumnWidths(projectId);
+  const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
+  const dnd = useDnd({
+    sections,
+    reorderSections: (ids) => reorderSections.mutate(ids),
+    reorderTasks: (input) => {
+      // Qualquer arraste manual passa a valer como "ordem manual" para este
+      // projeto — do contrário o próximo render voltaria a alfabetar por
+      // created_at e o esforço do usuário se perderia.
+      if (!manualOrder) setManualOrder(true);
+      reorderTasks.mutate(input);
+    },
+  });
   const {
     selected,
     toggleOne,
@@ -1265,12 +1458,23 @@ export function ListView({
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
 
+  /**
+   * Ordem padrão: por data de criação crescente — o que a pessoa cadastrou
+   * primeiro aparece primeiro. Se o usuário arrastou tarefas manualmente e
+   * marcou "Ordem manual" no menu, cai no fallback de position. Ordenar por
+   * coluna (sort != null) sobrescreve os dois.
+   */
   const applySort = (list: Task[]) => {
-    if (!sort) return list.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    const factor = sort.dir === "asc" ? 1 : -1;
-    return list
-      .slice()
-      .sort((a, b) => sortValue(a, sort.key, members).localeCompare(sortValue(b, sort.key, members)) * factor);
+    if (sort) {
+      const factor = sort.dir === "asc" ? 1 : -1;
+      return list
+        .slice()
+        .sort((a, b) => sortValue(a, sort.key, members).localeCompare(sortValue(b, sort.key, members)) * factor);
+    }
+    if (manualOrder) {
+      return list.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    }
+    return list.slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
   };
 
   const groups: Section[] = [
@@ -1280,6 +1484,19 @@ export function ListView({
 
   return (
     <div className="space-y-3">
+      {manualOrder && !sort && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Ordenação manual (definida pelo arraste).</span>
+          <button
+            type="button"
+            onClick={() => setManualOrder(false)}
+            className="btn btn-ghost px-2 py-0.5 text-xs"
+          >
+            Voltar para ordem de criação
+          </button>
+        </div>
+      )}
+
       {someSelected && (
         <SelectionBar
           count={selected.size}
@@ -1360,6 +1577,12 @@ export function ListView({
                     const open = expanded[t.id] ?? false;
                     return (
                       <div key={t.id}>
+                        <TaskContextMenu
+                          task={t}
+                          members={members}
+                          sections={sections}
+                          onOpen={() => onOpenTask(t)}
+                        >
                         <div
                           draggable
                           onDragStart={(e) => {
@@ -1435,11 +1658,18 @@ export function ListView({
                           <TaskCells task={t} columns={columns} members={members} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
+                        </TaskContextMenu>
 
                         {open &&
                           subs.map((s) => (
-                            <div
+                            <TaskContextMenu
                               key={s.id}
+                              task={s}
+                              members={members}
+                              sections={sections}
+                              onOpen={() => onOpenTask(s)}
+                            >
+                            <div
                               className="group flex items-center gap-2 border-t border-border/60 bg-secondary/20 py-1.5 pr-3 pl-11"
                             >
                               <span
@@ -1470,6 +1700,7 @@ export function ListView({
                               <TaskCells task={s} columns={columns} members={members} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
+                            </TaskContextMenu>
                           ))}
                       </div>
                     );
@@ -1590,6 +1821,12 @@ export function BoardView({
                   >
                     {/* div, não button: o card contém outros botões (concluir, excluir)
                         e botão aninhado é HTML inválido — quebra a hidratação. */}
+                    <TaskContextMenu
+                      task={t}
+                      members={members}
+                      sections={sections}
+                      onOpen={() => onOpenTask(t)}
+                    >
                     <div
                       role="button"
                       tabIndex={0}
@@ -1643,6 +1880,7 @@ export function BoardView({
                         )}
                       </div>
                     </div>
+                    </TaskContextMenu>
                     <DeleteTaskButton
                       task={t}
                       className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100"

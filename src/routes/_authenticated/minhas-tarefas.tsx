@@ -60,7 +60,7 @@ function bucketOf(task: Task): BucketId {
 
 function MyTasksPage() {
   const { tasks, members, projects, isLoading } = useWorkspaceData();
-  const { sections, fields, fieldValues, comments, dependencies, taskProjects } = useAsanaData();
+  const { sections, fields, fieldValues, comments, dependencies, taskProjects, attachments } = useAsanaData();
   const { member, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [pickedId, setPickedId] = useState("");
@@ -182,6 +182,7 @@ function MyTasksPage() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          attachments={attachments}
           currentMember={activeMember}
           currentUserId={userId}
           onClose={() => setOpenTask(null)}

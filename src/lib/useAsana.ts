@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  attachmentsQuery,
   automationsQuery,
   commentsQuery,
   customFieldsQuery,
@@ -28,6 +29,7 @@ export function useAsanaData() {
   const notifications = useQuery(notificationsQuery);
   const taskProjects = useQuery(taskProjectsQuery);
   const automations = useQuery(automationsQuery);
+  const attachments = useQuery(attachmentsQuery);
 
   return {
     portfolios: portfolios.data ?? [],
@@ -40,6 +42,7 @@ export function useAsanaData() {
     notifications: notifications.data ?? [],
     taskProjects: taskProjects.data ?? [],
     automations: automations.data ?? [],
+    attachments: attachments.data ?? [],
     isLoading:
       portfolios.isLoading ||
       sections.isLoading ||
@@ -49,7 +52,8 @@ export function useAsanaData() {
       comments.isLoading ||
       taskProjects.isLoading ||
       automations.isLoading ||
-      notifications.isLoading,
+      notifications.isLoading ||
+      attachments.isLoading,
   };
 }
 

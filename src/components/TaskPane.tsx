@@ -5,9 +5,12 @@ import {
   CalendarDays,
   Check,
   CircleSlash,
+  Download,
+  FileText,
   Flag,
   Link2,
   MessageSquare,
+  Paperclip,
   Plus,
   Trash2,
   X,
@@ -20,7 +23,12 @@ import {
   addDependency,
   createComment,
   createNotifications,
+  deleteComment,
+  deleteTaskAttachment,
+  getAttachmentUrl,
   linkTaskToProject,
+  updateComment,
+  uploadTaskAttachment,
   removeDependency,
   resolveMentions,
   setFieldValue,
@@ -28,6 +36,7 @@ import {
   type Automation,
   type CustomField,
   type Section,
+  type TaskAttachment,
   type TaskComment,
   type TaskDependency,
   type TaskFieldValue,
@@ -61,6 +70,7 @@ type Props = {
   projects?: Project[];
   taskProjects?: TaskProject[];
   automations?: Automation[];
+  attachments?: TaskAttachment[];
   currentMember: Member | null;
   currentUserId: string | null;
   onClose: () => void;
@@ -83,6 +93,7 @@ export function TaskPane({
   projects = [],
   taskProjects = [],
   automations = [],
+  attachments = [],
   currentMember,
   currentUserId,
   onClose,
@@ -542,7 +553,7 @@ export function TaskPane({
               />
             </div>
 
-            <TaskProjectsBlock task={task} projects={projects} taskProjects={taskProjects} />
+            <TaskProjectsBlock task={task} projects={projects} taskProjects={taskProjects} sections={sections} />
 
             {/* subtarefas */}
             <section className="space-y-1.5">
@@ -635,6 +646,13 @@ export function TaskPane({
               )}
             </section>
 
+            <AttachmentsBlock
+              taskId={task.id}
+              attachments={attachments.filter((a) => a.task_id === task.id)}
+              currentMemberId={currentMember?.id ?? null}
+              currentUserId={currentUserId}
+            />
+
             {/* atividade */}
             <section className="space-y-3 border-t border-border pt-4">
               <h3 className="flex items-center gap-2 text-[13px] font-semibold">
@@ -647,24 +665,17 @@ export function TaskPane({
               <ul className="space-y-3">
                 {activity.map((item) =>
                   item.kind === "comment" ? (
-                    <li key={item.id} className="flex gap-2">
-                      <Avatar
-                        name={memberOf(item.comment.author_member_id)?.name}
-                        color={memberOf(item.comment.author_member_id)?.avatar_color}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs">
-                          <span className="font-medium">{memberOf(item.comment.author_member_id)?.name ?? "Usuário"}</span>
-                          <span className="text-muted-foreground">
-                            {" · "}
-                            {new Date(item.comment.created_at).toLocaleString("pt-BR")}
-                          </span>
-                        </p>
-                        <p className="mt-1 rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">
-                          {item.comment.body}
-                        </p>
-                      </div>
-                    </li>
+                    <CommentItem
+                      key={item.id}
+                      comment={item.comment}
+                      author={memberOf(item.comment.author_member_id)}
+                      isOwn={
+                        (currentUserId && item.comment.author_user_id === currentUserId) ||
+                        (currentMember?.id && item.comment.author_member_id === currentMember.id)
+                          ? true
+                          : false
+                      }
+                    />
                   ) : (
                     <li key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="size-1.5 shrink-0 rounded-full bg-border" />
@@ -747,24 +758,273 @@ function SubtaskCheck({ task }: { task: Task }) {
 }
 
 /** Vincula a mesma tarefa a vários projetos (visível em todos, sem duplicar). */
+/**
+ * Anexos da tarefa (bucket privado no Storage). Upload de imagens e PDFs até
+ * 10 MB — limite reforçado pelo próprio bucket, mas checamos aqui para dar
+ * mensagem clara antes de tentar. URL para visualizar é sempre signed (5 min).
+ */
+function AttachmentsBlock({
+  taskId,
+  attachments,
+  currentMemberId,
+  currentUserId,
+}: {
+  taskId: string;
+  attachments: TaskAttachment[];
+  currentMemberId: string | null;
+  currentUserId: string | null;
+}) {
+  const qc = useQueryClient();
+
+  const upload = useMutation({
+    mutationFn: (file: File) =>
+      uploadTaskAttachment({
+        taskId,
+        file,
+        memberId: currentMemberId,
+        userId: currentUserId,
+      }),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível enviar o anexo: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+
+  const remove = useMutation({
+    mutationFn: (att: TaskAttachment) => deleteTaskAttachment(att),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível excluir o anexo."),
+  });
+
+  const onPick = (files: FileList | null) => {
+    if (!files) return;
+    for (const f of Array.from(files)) {
+      if (f.size > 10 * 1024 * 1024) {
+        toast.error(`"${f.name}" passa de 10 MB.`);
+        continue;
+      }
+      upload.mutate(f);
+    }
+  };
+
+  const download = async (att: TaskAttachment) => {
+    try {
+      const url = await getAttachmentUrl(att.storage_path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Não foi possível abrir o arquivo.");
+    }
+  };
+
+  return (
+    <section className="space-y-1.5 border-t border-border pt-4">
+      <div className="flex items-center gap-2">
+        <h3 className="flex items-center gap-2 text-[13px] font-semibold">
+          <Paperclip className="size-3.5" /> Anexos {attachments.length > 0 && `(${attachments.length})`}
+        </h3>
+        <label className="btn btn-outline ml-auto cursor-pointer px-2 py-1 text-xs">
+          {upload.isPending ? "Enviando…" : "Adicionar"}
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+            className="hidden"
+            disabled={upload.isPending}
+            onChange={(e) => {
+              onPick(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {attachments.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nenhum arquivo ainda. Imagens ou PDFs até 10 MB.</p>
+      ) : (
+        <ul className="grid gap-1.5 sm:grid-cols-2">
+          {attachments.map((a) => {
+            const isOwn =
+              (currentUserId && a.uploaded_by_user === currentUserId) ||
+              (currentMemberId && a.uploaded_by_member === currentMemberId);
+            const isImage = (a.mime_type ?? "").startsWith("image/");
+            return (
+              <li
+                key={a.id}
+                className="group flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
+              >
+                {isImage ? <FileText className="size-4 shrink-0 text-info" /> : <FileText className="size-4 shrink-0 text-muted-foreground" />}
+                <button
+                  type="button"
+                  onClick={() => download(a)}
+                  className="min-w-0 flex-1 truncate text-left hover:underline"
+                  title={a.file_name}
+                >
+                  {a.file_name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => download(a)}
+                  aria-label="Baixar"
+                  className="rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary hover:text-foreground"
+                >
+                  <Download className="size-3.5" />
+                </button>
+                {isOwn && (
+                  <button
+                    type="button"
+                    onClick={() => confirm(`Excluir "${a.file_name}"?`) && remove.mutate(a)}
+                    aria-label="Excluir anexo"
+                    className="rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Cartão de comentário na aba Atividade. Se o comentário for do próprio
+ * usuário, mostra "editar" e "excluir" no hover. A política do banco só
+ * permite essas ações para o autor (ver comments update own / delete own).
+ */
+function CommentItem({
+  comment,
+  author,
+  isOwn,
+}: {
+  comment: TaskComment;
+  author: Member | null;
+  isOwn: boolean;
+}) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.body);
+
+  const save = useMutation({
+    mutationFn: (body: string) => updateComment(comment.id, body),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      setEditing(false);
+    },
+    onError: () => toast.error("Não foi possível salvar a edição."),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteComment(comment.id),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível excluir o comentário."),
+  });
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      toast.error("O comentário não pode ficar vazio.");
+      return;
+    }
+    if (trimmed === comment.body) {
+      setEditing(false);
+      return;
+    }
+    save.mutate(trimmed);
+  };
+
+  return (
+    <li className="group flex gap-2">
+      <Avatar name={author?.name} color={author?.avatar_color} />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs">
+          <span className="font-medium">{author?.name ?? "Usuário"}</span>
+          <span className="text-muted-foreground">
+            {" · "}
+            {new Date(comment.created_at).toLocaleString("pt-BR")}
+          </span>
+        </p>
+        {editing ? (
+          <div className="mt-1 space-y-1.5">
+            <textarea
+              autoFocus
+              value={draft}
+              maxLength={2000}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
+                if (e.key === "Escape") {
+                  setDraft(comment.body);
+                  setEditing(false);
+                }
+              }}
+              className="w-full rounded-lg border border-ring bg-background px-3 py-2 text-sm focus:outline-none"
+              rows={3}
+              disabled={save.isPending}
+            />
+            <div className="flex items-center gap-2">
+              <button onClick={commit} disabled={save.isPending} className="btn btn-primary px-2.5 py-1 text-xs">
+                {save.isPending ? "Salvando…" : "Salvar"}
+              </button>
+              <button
+                onClick={() => {
+                  setDraft(comment.body);
+                  setEditing(false);
+                }}
+                disabled={save.isPending}
+                className="btn btn-ghost px-2 py-1 text-xs"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-1 rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">{comment.body}</p>
+        )}
+        {isOwn && !editing && (
+          <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button
+              onClick={() => setEditing(true)}
+              className="btn btn-ghost px-1.5 py-0.5 text-[11px]"
+              aria-label="Editar comentário"
+            >
+              Editar
+            </button>
+            <button
+              onClick={() => confirm("Excluir este comentário?") && remove.mutate()}
+              className="btn btn-ghost px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/10"
+              aria-label="Excluir comentário"
+            >
+              Excluir
+            </button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function TaskProjectsBlock({
   task,
   projects,
   taskProjects,
+  sections,
 }: {
   task: Task;
   projects: Project[];
   taskProjects: TaskProject[];
+  sections: Section[];
 }) {
   const qc = useQueryClient();
-  const [pick, setPick] = useState("");
+  /** Etapa 1: pessoa escolhe o projeto; etapa 2: escolhe a seção dele. */
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
   const links = taskProjects.filter((l) => l.task_id === task.id);
   const linkedIds = new Set(links.map((l) => l.project_id));
 
   const add = useMutation({
-    mutationFn: (projectId: string) => linkTaskToProject(task.id, projectId),
+    mutationFn: ({ projectId, sectionId }: { projectId: string; sectionId: string | null }) =>
+      linkTaskToProject(task.id, projectId, sectionId),
     onSuccess: () => {
-      setPick("");
+      setPendingProjectId(null);
       qc.invalidateQueries();
       toast.success("Tarefa agora aparece neste projeto também.");
     },
@@ -811,11 +1071,8 @@ function TaskProjectsBlock({
           <select
             aria-label="Adicionar a outro projeto"
             className="rounded-full border border-dashed border-input bg-transparent px-2.5 py-1 text-xs text-muted-foreground"
-            value={pick}
-            onChange={(e) => {
-              setPick(e.target.value);
-              if (e.target.value) add.mutate(e.target.value);
-            }}
+            value={pendingProjectId ?? ""}
+            onChange={(e) => setPendingProjectId(e.target.value || null)}
           >
             <option value="">+ Adicionar a projeto</option>
             {projects
@@ -828,6 +1085,73 @@ function TaskProjectsBlock({
           </select>
         </li>
       </ul>
+
+      {pendingProjectId && (
+        <SectionPicker
+          project={projects.find((p) => p.id === pendingProjectId) ?? null}
+          sections={sections.filter((s) => s.project_id === pendingProjectId)}
+          pending={add.isPending}
+          onConfirm={(sectionId) => add.mutate({ projectId: pendingProjectId, sectionId })}
+          onCancel={() => setPendingProjectId(null)}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * Segundo passo do "adicionar a outro projeto": lista as seções do projeto
+ * escolhido para a pessoa decidir onde a tarefa entra. Vem inline logo abaixo
+ * do dropdown de projetos, sem modal — o fluxo é rápido demais para isso.
+ */
+function SectionPicker({
+  project,
+  sections,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  project: Project | null;
+  sections: Section[];
+  pending: boolean;
+  onConfirm: (sectionId: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [sectionId, setSectionId] = useState<string>(sections[0]?.id ?? "");
+  if (!project) return null;
+
+  return (
+    <div className="rounded-lg border border-dashed border-input bg-secondary/40 p-2.5 text-xs">
+      <p className="mb-1.5 text-muted-foreground">
+        Em qual seção de <span className="font-medium text-foreground">{project.name}</span> a tarefa entra?
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Seção de destino"
+          className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+          value={sectionId}
+          onChange={(e) => setSectionId(e.target.value)}
+          disabled={pending}
+        >
+          {sections.length === 0 && <option value="">Sem seção</option>}
+          {sections.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => onConfirm(sectionId || null)}
+          disabled={pending}
+          className="btn btn-primary px-2.5 py-1 text-xs"
+        >
+          {pending ? "Adicionando…" : "Adicionar"}
+        </button>
+        <button type="button" onClick={onCancel} disabled={pending} className="btn btn-ghost px-2 py-1 text-xs">
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }

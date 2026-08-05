@@ -60,6 +60,19 @@ export type CommentMention = {
   member_id: string;
 };
 
+export type TaskAttachment = {
+  id: string;
+  task_id: string;
+  comment_id: string | null;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_by_member: string | null;
+  uploaded_by_user: string | null;
+  created_at: string;
+};
+
 export type Notification = {
   id: string;
   member_id: string | null;
@@ -186,6 +199,11 @@ export const automationsQuery = queryOptions({
   queryFn: () => all<Automation>("automations", "created_at"),
 });
 
+export const attachmentsQuery = queryOptions({
+  queryKey: ["task_attachments"],
+  queryFn: () => all<TaskAttachment>("task_attachments", "created_at"),
+});
+
 
 /* ---------------- escrita ---------------- */
 
@@ -266,6 +284,9 @@ export async function createComment(payload: {
 }
 
 export const deleteComment = (id: string) => run(table("task_comments").delete().eq("id", id));
+
+export const updateComment = (id: string, body: string) =>
+  run(table("task_comments").update({ body } as never).eq("id", id));
 
 /* notificações */
 export const createNotifications = (
@@ -384,3 +405,73 @@ export const updateAutomation = (id: string, patch: Partial<Automation>) =>
   run(table("automations").update(patch as never).eq("id", id));
 
 export const deleteAutomation = (id: string) => run(table("automations").delete().eq("id", id));
+
+/* ---------------- anexos de tarefa ---------------- */
+
+/** Bucket privado; ver migration 20260804140000_anexos_de_comentario.sql. */
+const ATTACHMENT_BUCKET = "task-attachments";
+
+/**
+ * Sobe o arquivo no Storage e insere o registro em task_attachments.
+ * Se o insert falhar, remove o objeto do Storage para não deixar arquivo órfão.
+ * comment_id é opcional: anexos podem ficar avulsos na tarefa.
+ */
+export async function uploadTaskAttachment(input: {
+  taskId: string;
+  commentId?: string | null;
+  file: File;
+  memberId?: string | null;
+  userId?: string | null;
+}) {
+  const safeName = input.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${input.taskId}/${crypto.randomUUID()}-${safeName}`;
+
+  const uploadOptions: { contentType?: string; upsert: boolean } = { upsert: false };
+  if (input.file.type) uploadOptions.contentType = input.file.type;
+  const { error: uploadErr } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(path, input.file, uploadOptions);
+  if (uploadErr) throw uploadErr;
+
+  const { data, error: insertErr } = await supabase
+    .from("task_attachments" as never)
+    .insert({
+      task_id: input.taskId,
+      comment_id: input.commentId ?? null,
+      storage_path: path,
+      file_name: input.file.name,
+      mime_type: input.file.type || null,
+      size_bytes: input.file.size,
+      uploaded_by_member: input.memberId ?? null,
+      uploaded_by_user: input.userId ?? null,
+    } as never)
+    .select("id")
+    .single();
+
+  if (insertErr) {
+    // rollback do arquivo — sem isso ficaria lixo no bucket.
+    try {
+      await supabase.storage.from(ATTACHMENT_BUCKET).remove([path]);
+    } catch {
+      /* ignora, o erro original é o que importa */
+    }
+    throw insertErr;
+  }
+  return (data as { id: string }).id;
+}
+
+/** Cria uma URL temporária para baixar/visualizar (5 min). */
+export async function getAttachmentUrl(storagePath: string) {
+  const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(storagePath, 60 * 5);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+/** Apaga do banco e do Storage (nessa ordem: se o banco recusar, arquivo fica). */
+export async function deleteTaskAttachment(attachment: Pick<TaskAttachment, "id" | "storage_path">) {
+  const { error } = await supabase.from("task_attachments" as never).delete().eq("id", attachment.id);
+  if (error) throw error;
+  try {
+    await supabase.storage.from(ATTACHMENT_BUCKET).remove([attachment.storage_path]);
+  } catch {
+    /* arquivo pode já ter sido removido por outro caminho, tudo bem */
+  }
+}

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -81,6 +81,49 @@ const VIEWS = [
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"] | "cols" | "config" | "auto";
+type ViewTabId = (typeof VIEWS)[number]["id"];
+
+/**
+ * Ordem das abas de visualização. Fica no localStorage por projeto — cada
+ * pessoa arruma como prefere. Se a ordem salva estiver desatualizada (aba
+ * removida ou adicionada em versão nova do app), completa com o restante na
+ * ordem canônica sem descartar a preferência da pessoa.
+ */
+function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) => void] {
+  const storageKey = `fluxo:view-order:${projectId}`;
+  const canonical = VIEWS.map((v) => v.id) as ViewTabId[];
+  const [order, setOrder] = useState<ViewTabId[]>(canonical);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        setOrder(canonical);
+        return;
+      }
+      const saved = JSON.parse(raw) as string[];
+      const known = new Set(canonical);
+      const filtered = saved.filter((id): id is ViewTabId => known.has(id as ViewTabId));
+      const missing = canonical.filter((id) => !filtered.includes(id));
+      setOrder([...filtered, ...missing]);
+    } catch {
+      setOrder(canonical);
+    }
+    // canonical é derivado de VIEWS (constante do módulo), não muda entre renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  const update = (next: ViewTabId[]) => {
+    setOrder(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      /* modo privado ou cota cheia: só afeta esta sessão */
+    }
+  };
+
+  return [order, update];
+}
 
 const PANELS: { id: ViewId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "cols", label: "Colunas e campos", icon: Table2 },
@@ -184,12 +227,17 @@ function ProjectDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { projects, tasks, members, isLoading } = useWorkspaceData();
-  const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations } =
+  const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations, attachments } =
     useAsanaData();
   const { member: currentMember, userId } = useCurrentMember();
   const { role, isAdmin } = useAccessRole();
 
   const [view, setView] = useState<ViewId>("list");
+  const [tabOrder, setTabOrder] = useViewTabOrder(projectId);
+  const [dragTab, setDragTab] = useState<ViewTabId | null>(null);
+  const orderedViews = tabOrder
+    .map((id) => VIEWS.find((v) => v.id === id))
+    .filter((v): v is (typeof VIEWS)[number] => Boolean(v));
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [editing, setEditing] = useState(false);
   const [filters, setFilters] = useState({ term: "", assignee: "", status: "", hideDone: false });
@@ -375,17 +423,37 @@ function ProjectDetail() {
         </div>
       </div>
 
-      {/* abas */}
+      {/* abas — arraste para reordenar; a preferência fica por projeto no navegador */}
       <nav className="flex items-center gap-1 overflow-x-auto border-b border-border">
-        {VIEWS.map((v) => (
+        {orderedViews.map((v) => (
           <button
             key={v.id}
             onClick={() => setView(v.id)}
+            draggable
+            onDragStart={(e) => {
+              setDragTab(v.id);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => setDragTab(null)}
+            onDragOver={(e) => {
+              if (dragTab && dragTab !== v.id) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!dragTab || dragTab === v.id) return;
+              const next = tabOrder.filter((id) => id !== dragTab);
+              const at = next.indexOf(v.id);
+              next.splice(at < 0 ? next.length : at, 0, dragTab);
+              setTabOrder(next);
+              setDragTab(null);
+            }}
+            title="Arraste para reordenar"
             className={cn(
-              "-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13.5px] transition-colors",
+              "-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13.5px] transition-colors",
               view === v.id
                 ? "border-brand font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
+              dragTab === v.id && "opacity-40",
             )}
           >
             <v.icon className="size-4" /> {v.label}
@@ -508,6 +576,7 @@ function ProjectDetail() {
           projects={projects}
           taskProjects={taskProjects}
           automations={automations}
+          attachments={attachments}
           currentMember={currentMember}
           currentUserId={userId}
           onClose={() => setOpenTask(null)}
