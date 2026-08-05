@@ -22,6 +22,7 @@ import { TaskPane } from "@/components/TaskPane";
 import { BoardView, CalendarView, ListView, TimelineView } from "@/components/project/ProjectViews";
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
+import { hasProjectAccess, useAccessRole } from "@/lib/access";
 import { deleteProject, updateProject } from "@/lib/data";
 import {
   FIELD_TYPE_LABEL,
@@ -93,6 +94,7 @@ function ProjectDetail() {
   const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations } =
     useAsanaData();
   const { member: currentMember, userId } = useCurrentMember();
+  const { role, isAdmin } = useAccessRole();
 
   const [view, setView] = useState<ViewId>("list");
   const [openTask, setOpenTask] = useState<Task | null>(null);
@@ -162,6 +164,7 @@ function ProjectDetail() {
   const filtersOn = Boolean(filters.term || filters.assignee || filters.status || filters.hideDone);
 
   const team = members.filter((m) => projectTasks.some((t) => t.assignee_id === m.id));
+  const hasAccess = hasProjectAccess(role, currentMember?.id ?? null, project, tasks, taskProjects);
 
   const viewProps = {
     projectId,
@@ -221,20 +224,26 @@ function ProjectDetail() {
 
           <div className="ml-auto flex items-center gap-2">
             {team.length > 0 && <AvatarStack people={team} />}
-            <button onClick={() => setEditing(true)} className="btn btn-outline">
-              Editar projeto
-            </button>
+            {hasAccess && (
+              <button onClick={() => setEditing(true)} className="btn btn-outline">
+                Editar projeto
+              </button>
+            )}
             <RowMenu
               actions={[
-                ...PANELS.map((p) => ({ label: p.label, icon: p.icon, onSelect: () => setView(p.id) })),
-                {
-                  label: "Excluir projeto",
-                  icon: Trash2,
-                  destructive: true,
-                  separatorBefore: true,
-                  onSelect: () =>
-                    confirm("Excluir este projeto e todas as tarefas?") ? remove.mutate() : undefined,
-                },
+                ...(hasAccess ? PANELS.map((p) => ({ label: p.label, icon: p.icon, onSelect: () => setView(p.id) })) : []),
+                ...(isAdmin
+                  ? [
+                      {
+                        label: "Excluir projeto",
+                        icon: Trash2,
+                        destructive: true,
+                        separatorBefore: true,
+                        onSelect: () =>
+                          confirm("Excluir este projeto e todas as tarefas?") ? remove.mutate() : undefined,
+                      },
+                    ]
+                  : []),
               ]}
             />
           </div>
@@ -336,21 +345,29 @@ function ProjectDetail() {
       {view === "board" && <BoardView {...viewProps} />}
       {view === "timeline" && <TimelineView {...viewProps} dependencies={dependencies} />}
       {view === "calendar" && <CalendarView {...viewProps} />}
-      {view === "cols" && (
-        <div className="space-y-4">
-          <ColumnsPanel project={project} fields={projectFields} />
-          <CustomFieldsPanel projectId={projectId} fields={projectFields} />
-        </div>
-      )}
-      {view === "config" && <ProjectSettings project={project} members={members} />}
-      {view === "auto" && (
-        <AutomationsPanel
-          projectId={projectId}
-          automations={projectAutomations}
-          members={members}
-          sections={projectSections}
-          projects={projects.filter((p) => p.id !== projectId)}
-        />
+      {/* Colunas, configuração e automações mexem no projeto — quem não tem
+          acesso a ele (RLS barra a escrita mesmo assim) nem vê a tela. */}
+      {!hasAccess && (view === "cols" || view === "config" || view === "auto") ? (
+        <EmptyState title="Sem acesso a esta área" description="Fale com um administrador se precisar mexer aqui." />
+      ) : (
+        <>
+          {view === "cols" && (
+            <div className="space-y-4">
+              <ColumnsPanel project={project} fields={projectFields} />
+              <CustomFieldsPanel projectId={projectId} fields={projectFields} />
+            </div>
+          )}
+          {view === "config" && <ProjectSettings project={project} members={members} />}
+          {view === "auto" && (
+            <AutomationsPanel
+              projectId={projectId}
+              automations={projectAutomations}
+              members={members}
+              sections={projectSections}
+              projects={projects.filter((p) => p.id !== projectId)}
+            />
+          )}
+        </>
       )}
 
       {live && (

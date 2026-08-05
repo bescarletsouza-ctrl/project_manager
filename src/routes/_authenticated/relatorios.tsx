@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { SectionTitle, StatCard } from "@/components/ui-bits";
+import { requireRole } from "@/lib/access";
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import {
   STATUS_META,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/domain";
 
 export const Route = createFileRoute("/_authenticated/relatorios")({
+  beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
       { title: "Relatórios operacionais — Fluxo" },

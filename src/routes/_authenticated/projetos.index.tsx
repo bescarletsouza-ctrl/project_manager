@@ -5,6 +5,7 @@ import { AvatarStack } from "@/components/Avatar";
 import { Bar, EmptyState, Pill } from "@/components/ui-bits";
 import { NewProjectDialog } from "@/components/dialogs";
 import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useAccessRole } from "@/lib/access";
 import { PROJECT_STATUS, PROJECT_STATUS_LABEL, projectHealth } from "@/lib/domain";
 import { softClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/_authenticated/projetos/")({
 
 function ProjectsPage() {
   const { projects, tasks, members, isLoading } = useWorkspaceData();
+  const { canCreateProject } = useAccessRole();
   const [creating, setCreating] = useState(false);
   const [status, setStatus] = useState("");
   const [term, setTerm] = useState("");
@@ -48,9 +50,11 @@ function ProjectsPage() {
             {projects.length} projeto(s) · clique para abrir a lista, o quadro ou a timeline.
           </p>
         </div>
-        <button onClick={() => setCreating(true)} className="btn btn-brand">
-          <Plus className="size-4" /> Novo projeto
-        </button>
+        {canCreateProject && (
+          <button onClick={() => setCreating(true)} className="btn btn-brand">
+            <Plus className="size-4" /> Novo projeto
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -97,11 +101,17 @@ function ProjectsPage() {
       {list.length === 0 ? (
         <EmptyState
           title="Nenhum projeto por aqui"
-          description="Crie o primeiro projeto — ele já nasce com seções prontas para receber tarefas."
+          description={
+            canCreateProject
+              ? "Crie o primeiro projeto — ele já nasce com seções prontas para receber tarefas."
+              : "Ainda não há projetos visíveis para você."
+          }
           action={
-            <button onClick={() => setCreating(true)} className="btn btn-primary">
-              <Plus className="size-4" /> Novo projeto
-            </button>
+            canCreateProject ? (
+              <button onClick={() => setCreating(true)} className="btn btn-primary">
+                <Plus className="size-4" /> Novo projeto
+              </button>
+            ) : undefined
           }
         />
       ) : layout === "grid" ? (

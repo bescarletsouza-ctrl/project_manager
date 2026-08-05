@@ -35,6 +35,7 @@ import {
 import { projectsQuery, tasksQuery } from "@/lib/data";
 import { notificationsQuery, portfoliosQuery } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
+import { useAccessRole } from "@/lib/access";
 import { dotClass } from "@/lib/colors";
 import { isOpen, type Project, type Task } from "@/lib/domain";
 import { cn } from "@/lib/utils";
@@ -154,12 +155,14 @@ function SidebarContent({
   const portfolios = useQuery(portfoliosQuery).data ?? [];
   const notifications = useQuery(notificationsQuery).data ?? [];
   const { member } = useCurrentMember();
+  const { canViewReports, canCreateProject, canManageTeam } = useAccessRole();
 
   const unread = member
     ? notifications.filter((n) => n.member_id === member.id && !n.read_at && !n.archived_at).length
     : 0;
 
   const [open, setOpen] = useState({ insights: true, projects: true, portfolios: false });
+  const insightsNav = canViewReports ? INSIGHTS_NAV : [];
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -202,7 +205,7 @@ function SidebarContent({
 
         {collapsed ? (
           <div className="space-y-0.5 pt-2">
-            {INSIGHTS_NAV.map((item) => (
+            {insightsNav.map((item) => (
               <NavItem
                 key={item.to}
                 to={item.to}
@@ -216,36 +219,40 @@ function SidebarContent({
           </div>
         ) : (
           <>
-            <Group
-              label="Insights"
-              open={open.insights}
-              onToggle={() => setOpen((o) => ({ ...o, insights: !o.insights }))}
-            >
-              {INSIGHTS_NAV.map((item) => (
-                <NavItem
-                  key={item.to}
-                  to={item.to}
-                  label={item.label}
-                  icon={item.icon}
-                  collapsed={false}
-                  active={pathname.startsWith(item.to)}
-                />
-              ))}
-            </Group>
+            {insightsNav.length > 0 && (
+              <Group
+                label="Insights"
+                open={open.insights}
+                onToggle={() => setOpen((o) => ({ ...o, insights: !o.insights }))}
+              >
+                {insightsNav.map((item) => (
+                  <NavItem
+                    key={item.to}
+                    to={item.to}
+                    label={item.label}
+                    icon={item.icon}
+                    collapsed={false}
+                    active={pathname.startsWith(item.to)}
+                  />
+                ))}
+              </Group>
+            )}
 
             <Group
               label="Projetos"
               open={open.projects}
               onToggle={() => setOpen((o) => ({ ...o, projects: !o.projects }))}
               action={
-                <button
-                  onClick={onCreateProject}
-                  aria-label="Novo projeto"
-                  title="Novo projeto"
-                  className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-                >
-                  <Plus className="size-3.5" />
-                </button>
+                canCreateProject ? (
+                  <button
+                    onClick={onCreateProject}
+                    aria-label="Novo projeto"
+                    title="Novo projeto"
+                    className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                ) : undefined
               }
             >
               {projects.length === 0 && (
@@ -301,13 +308,15 @@ function SidebarContent({
       </nav>
 
       <div className="border-t border-sidebar-border p-2">
-        <NavItem
-          to="/configuracoes"
-          label="Configurações"
-          icon={Settings}
-          collapsed={collapsed}
-          active={pathname.startsWith("/configuracoes")}
-        />
+        {canManageTeam && (
+          <NavItem
+            to="/configuracoes"
+            label="Configurações"
+            icon={Settings}
+            collapsed={collapsed}
+            active={pathname.startsWith("/configuracoes")}
+          />
+        )}
         {collapsed && onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -401,6 +410,7 @@ function TopBar({
   const queryClient = useQueryClient();
   const { dark, toggle } = useTheme();
   const { member, email } = useCurrentMember();
+  const { canCreateProject, isVisualizador } = useAccessRole();
 
   async function signOut() {
     await queryClient.cancelQueries();
@@ -418,20 +428,24 @@ function TopBar({
       <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-1.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger className="btn btn-brand">
-            <Plus className="size-4" />
-            <span className="hidden sm:inline">Criar</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onSelect={() => onCreate("task")} className="gap-2 text-sm">
-              <CheckCircle2 className="size-4" /> Tarefa
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onCreate("project")} className="gap-2 text-sm">
-              <FolderKanban className="size-4" /> Projeto
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!isVisualizador && (
+          <DropdownMenu>
+            <DropdownMenuTrigger className="btn btn-brand">
+              <Plus className="size-4" />
+              <span className="hidden sm:inline">Criar</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => onCreate("task")} className="gap-2 text-sm">
+                <CheckCircle2 className="size-4" /> Tarefa
+              </DropdownMenuItem>
+              {canCreateProject && (
+                <DropdownMenuItem onSelect={() => onCreate("project")} className="gap-2 text-sm">
+                  <FolderKanban className="size-4" /> Projeto
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         <button onClick={toggle} aria-label="Alternar tema" className="btn btn-ghost p-2">
           {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}

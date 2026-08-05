@@ -17,8 +17,10 @@ import {
   updateDepartment,
   updateMember,
 } from "@/lib/data";
+import { requireRole } from "@/lib/access";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
+  beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin"]),
   head: () => ({
     meta: [
       { title: "Configurações — acessos, equipe e departamentos | Fluxo" },

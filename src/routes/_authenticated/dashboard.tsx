@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { TasksByPersonChart } from "@/components/dashboard/TasksByPersonChart";
+import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import {
@@ -37,6 +38,7 @@ import {
 } from "@/lib/domain";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
+  beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
       { title: "Dashboard executivo — Fluxo" },

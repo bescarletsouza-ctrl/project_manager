@@ -112,12 +112,16 @@ export async function deleteProjectStatus(id: string) {
 
 /* ---------- CRUD de configurações (equipe, departamentos, clientes) ---------- */
 
-export const ACCESS_ROLES = ["admin", "gestor", "colaborador", "visualizador"] as const;
+export const ACCESS_ROLES = ["admin", "colaborador", "visualizador"] as const;
 export const ACCESS_ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
-  gestor: "Gestor",
   colaborador: "Colaborador",
   visualizador: "Visualizador",
+};
+export const ACCESS_ROLE_DESCRIPTION: Record<string, string> = {
+  admin: "Cria e exclui projetos, gerencia a equipe e vê relatórios.",
+  colaborador: "Edita os projetos em que é gestor ou tem tarefa atribuída.",
+  visualizador: "Só visualiza — inclusive os relatórios.",
 };
 
 export async function createMember(payload: Record<string, unknown>) {

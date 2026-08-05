@@ -16,8 +16,10 @@ import {
 import { Bar, MetaItem, Pill, SectionTitle, StatCard } from "@/components/ui-bits";
 import { useWorkspaceData, nameById, initials } from "@/lib/useData";
 import { formatHours, personMetrics } from "@/lib/domain";
+import { requireRole } from "@/lib/access";
 
 export const Route = createFileRoute("/_authenticated/pessoas")({
+  beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
       { title: "Produtividade por colaborador — Fluxo" },

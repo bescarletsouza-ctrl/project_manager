@@ -5,8 +5,10 @@ import { Bar, Pill, SectionTitle } from "@/components/ui-bits";
 import { useWorkspaceData, nameById, initials } from "@/lib/useData";
 import { updateTask } from "@/lib/data";
 import { isOpen, isLate, personMetrics, PRIORITY_LABEL } from "@/lib/domain";
+import { requireRole } from "@/lib/access";
 
 export const Route = createFileRoute("/_authenticated/workload")({
+  beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
       { title: "Workload e capacidade da equipe — Fluxo" },
