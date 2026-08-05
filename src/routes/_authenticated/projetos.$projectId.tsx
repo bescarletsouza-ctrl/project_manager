@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   CalendarDays,
   Columns3,
+  Copy,
   GanttChartSquare,
   LayoutGrid,
   List,
@@ -24,7 +25,7 @@ import { BoardView, CalendarView, ListView, TimelineView } from "@/components/pr
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { hasProjectAccess, useAccessRole } from "@/lib/access";
-import { deleteProject, updateProject } from "@/lib/data";
+import { deleteProject, duplicateProject, updateProject } from "@/lib/data";
 import {
   FIELD_TYPE_LABEL,
   TASK_COLUMNS,
@@ -203,6 +204,19 @@ function ProjectDetail() {
     onError: () => toast.error("Não foi possível excluir o projeto."),
   });
 
+  const duplicate = useMutation({
+    mutationFn: () => duplicateProject(projectId),
+    onSuccess: (newId) => {
+      qc.invalidateQueries();
+      toast.success("Projeto duplicado.");
+      // A duplicação já apaga cópia parcial em caso de erro (ver duplicateProject),
+      // então aqui podemos navegar direto sem risco de mandar o usuário para um ID quebrado.
+      navigate({ to: "/projetos/$projectId", params: { projectId: newId } });
+    },
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+
   const project = projects.find((p) => p.id === projectId);
 
   const links = useMemo(() => taskProjects.filter((l) => l.project_id === projectId), [taskProjects, projectId]);
@@ -324,6 +338,25 @@ function ProjectDetail() {
             <RowMenu
               actions={[
                 ...(hasAccess ? PANELS.map((p) => ({ label: p.label, icon: p.icon, onSelect: () => setView(p.id) })) : []),
+                ...(hasAccess
+                  ? [
+                      {
+                        label: duplicate.isPending ? "Duplicando…" : "Duplicar projeto",
+                        icon: Copy,
+                        separatorBefore: true,
+                        onSelect: () => {
+                          if (duplicate.isPending) return;
+                          if (
+                            confirm(
+                              `Duplicar "${project.name}"? A cópia leva tarefas, subtarefas, campos personalizados e configurações; comentários e histórico não são copiados.`,
+                            )
+                          ) {
+                            duplicate.mutate();
+                          }
+                        },
+                      },
+                    ]
+                  : []),
                 ...(isAdmin
                   ? [
                       {

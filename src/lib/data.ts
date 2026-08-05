@@ -95,6 +95,189 @@ export async function deleteProject(id: string) {
   if (error) throw error;
 }
 
+/**
+ * Duplica um projeto: copia estrutura (seções, campos personalizados,
+ * colunas visíveis, padrões), tarefas raiz + subtarefas com todos os
+ * atributos, e valores de campos personalizados.
+ *
+ * NÃO copia (por decisão do produto):
+ * - comentários e menções
+ * - histórico de atividades (task_status_history)
+ * - notificações
+ * - automações (dependem de contexto e podem disparar efeitos indesejados)
+ * - dependências entre tarefas (podem cruzar projetos)
+ *
+ * Se qualquer passo falhar depois da criação do projeto novo, o projeto é
+ * apagado (o ON DELETE CASCADE derruba seções/tarefas em cadeia) para não
+ * deixar cópia parcial no banco.
+ */
+export async function duplicateProject(sourceId: string) {
+  const { data: sourceRaw, error: readErr } = await supabase
+    .from("projects" as never)
+    .select("*")
+    .eq("id", sourceId)
+    .single();
+  if (readErr) throw readErr;
+  const source = sourceRaw as Project;
+
+  const {
+    id: _id,
+    name,
+    position: _position,
+    ...rest
+  } = source;
+
+  const newProjectId = await createProject({ ...rest, name: `Cópia de ${name}` });
+
+  try {
+    // Seções — id novo, precisamos do mapa antigo→novo para religar tarefas.
+    const { data: sectionsData, error: sectionsErr } = await supabase
+      .from("sections" as never)
+      .select("id, name, color, position")
+      .eq("project_id", sourceId)
+      .order("position", { ascending: true });
+    if (sectionsErr) throw sectionsErr;
+
+    const sectionIdMap = new Map<string, string>();
+    for (const s of (sectionsData ?? []) as { id: string; name: string; color: string; position: number }[]) {
+      const { data: created, error } = await supabase
+        .from("sections" as never)
+        .insert({ project_id: newProjectId, name: s.name, color: s.color, position: s.position } as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      sectionIdMap.set(s.id, (created as { id: string }).id);
+    }
+
+    // Campos personalizados — mesmo mapa, para copiar os valores depois.
+    const { data: fieldsData, error: fieldsErr } = await supabase
+      .from("custom_fields" as never)
+      .select("id, name, field_type, options, position")
+      .eq("project_id", sourceId)
+      .order("position", { ascending: true });
+    if (fieldsErr) throw fieldsErr;
+
+    const fieldIdMap = new Map<string, string>();
+    for (const f of (fieldsData ?? []) as {
+      id: string;
+      name: string;
+      field_type: string;
+      options: unknown;
+      position: number;
+    }[]) {
+      const { data: created, error } = await supabase
+        .from("custom_fields" as never)
+        .insert({
+          project_id: newProjectId,
+          name: f.name,
+          field_type: f.field_type,
+          options: f.options,
+          position: f.position,
+        } as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      fieldIdMap.set(f.id, (created as { id: string }).id);
+    }
+
+    // Tarefas — insere primeiro as raízes, depois as subtarefas com o novo
+    // parent_task_id. Copia responsáveis, prioridades, datas, status,
+    // etiquetas, sprint, marco etc.; zera contadores/histórico e a data de
+    // conclusão, para a cópia começar "fresca" mesmo em tarefas concluídas.
+    const { data: tasksData, error: tasksErr } = await supabase
+      .from("tasks" as never)
+      .select("*")
+      .eq("project_id", sourceId)
+      .order("position", { ascending: true });
+    if (tasksErr) throw tasksErr;
+
+    const tasks = (tasksData ?? []) as Task[];
+    const taskIdMap = new Map<string, string>();
+
+    const cloneTask = (t: Task, parentIdNew: string | null) => ({
+      title: t.title,
+      description: t.description,
+      project_id: newProjectId,
+      section_id: t.section_id ? (sectionIdMap.get(t.section_id) ?? null) : null,
+      department_id: t.department_id,
+      client_id: t.client_id,
+      assignee_id: t.assignee_id,
+      status: t.status,
+      priority: t.priority,
+      complexity: t.complexity,
+      task_type: t.task_type,
+      due_date: t.due_date,
+      start_date: t.start_date,
+      is_milestone: t.is_milestone,
+      tags: t.tags,
+      sprint: t.sprint,
+      position: t.position,
+      parent_task_id: parentIdNew,
+      // reinicia o ciclo: não copia started_at/completed_at nem contadores.
+      completed: false,
+      reopen_count: 0,
+      review_count: 0,
+      block_reason: null,
+    });
+
+    const roots = tasks.filter((t) => !t.parent_task_id);
+    for (const t of roots) {
+      const { data: created, error } = await supabase
+        .from("tasks" as never)
+        .insert(cloneTask(t, null) as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      taskIdMap.set(t.id, (created as { id: string }).id);
+    }
+
+    const subs = tasks.filter((t) => t.parent_task_id);
+    for (const t of subs) {
+      const parentNew = t.parent_task_id ? taskIdMap.get(t.parent_task_id) : null;
+      if (!parentNew) continue; // pai fora do projeto, ignora
+      const { data: created, error } = await supabase
+        .from("tasks" as never)
+        .insert(cloneTask(t, parentNew) as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      taskIdMap.set(t.id, (created as { id: string }).id);
+    }
+
+    // Valores dos campos personalizados das tarefas copiadas.
+    if (fieldIdMap.size > 0 && taskIdMap.size > 0) {
+      const { data: valuesData, error: valuesErr } = await supabase
+        .from("task_field_values" as never)
+        .select("task_id, field_id, value")
+        .in("task_id", tasks.map((t) => t.id));
+      if (valuesErr) throw valuesErr;
+
+      const rowsToInsert: { task_id: string; field_id: string; value: string | null }[] = [];
+      for (const v of (valuesData ?? []) as { task_id: string; field_id: string; value: string | null }[]) {
+        const newTaskId = taskIdMap.get(v.task_id);
+        const newFieldId = fieldIdMap.get(v.field_id);
+        if (newTaskId && newFieldId) rowsToInsert.push({ task_id: newTaskId, field_id: newFieldId, value: v.value });
+      }
+
+      if (rowsToInsert.length > 0) {
+        const { error } = await supabase.from("task_field_values" as never).insert(rowsToInsert as never);
+        if (error) throw error;
+      }
+    }
+
+    return newProjectId;
+  } catch (err) {
+    // Desfaz a cópia parcial. ON DELETE CASCADE em sections/custom_fields/
+    // tasks/task_field_values remove todo o resto derivado.
+    try {
+      await supabase.from("projects" as never).delete().eq("id", newProjectId);
+    } catch {
+      /* engolimos o erro do rollback para não mascarar o original */
+    }
+    throw err;
+  }
+}
+
 export async function createProjectStatus(payload: {
   project_id: string;
   name: string;
