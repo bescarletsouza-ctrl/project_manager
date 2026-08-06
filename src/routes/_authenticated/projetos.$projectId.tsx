@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
 import { Avatar, AvatarStack } from "@/components/Avatar";
 import { Bar, EmptyState, Field, MetaItem, Modal, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
+import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { BoardView, CalendarView, ListView, TimelineView } from "@/components/project/ProjectViews";
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
@@ -29,15 +30,10 @@ import { deleteProject, duplicateProject, updateProject } from "@/lib/data";
 import {
   FIELD_TYPE_LABEL,
   TASK_COLUMNS,
-  createAutomation,
   createCustomField,
-  deleteAutomation,
   deleteCustomField,
-  updateAutomation,
-  type Automation,
   type CustomFieldType,
 } from "@/lib/asana";
-import { ACTION_LABEL, TRIGGER_LABEL, type AutoEvent } from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -59,35 +55,35 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/projetos/$projectId")({
   head: () => ({
     meta: [
-      { title: "Projeto — Lista, Quadro, Timeline e Calendário — Fluxo" },
+      { title: "Projeto â€” Lista, Quadro, Timeline e CalendÃ¡rio â€” Fluxo" },
       {
         name: "description",
         content:
-          "Gerencie o projeto em Lista, Quadro, Timeline ou Calendário, com seções, subtarefas, dependências, marcos, colunas configuráveis e automações.",
+          "Gerencie o projeto em Lista, Quadro, Timeline ou CalendÃ¡rio, com seÃ§Ãµes, subtarefas, dependÃªncias, marcos, colunas configurÃ¡veis e automaÃ§Ãµes.",
       },
-      { property: "og:title", content: "Projeto — Fluxo" },
-      { property: "og:description", content: "Colunas configuráveis, automações, dependências e campos personalizados." },
+      { property: "og:title", content: "Projeto â€” Fluxo" },
+      { property: "og:description", content: "Colunas configurÃ¡veis, automaÃ§Ãµes, dependÃªncias e campos personalizados." },
     ],
   }),
   component: ProjectDetail,
 });
 
 const VIEWS = [
-  { id: "overview", label: "Visão geral", icon: LayoutGrid },
+  { id: "overview", label: "VisÃ£o geral", icon: LayoutGrid },
   { id: "list", label: "Lista", icon: List },
   { id: "board", label: "Quadro", icon: Columns3 },
   { id: "timeline", label: "Timeline", icon: GanttChartSquare },
-  { id: "calendar", label: "Calendário", icon: CalendarDays },
+  { id: "calendar", label: "CalendÃ¡rio", icon: CalendarDays },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"] | "cols" | "config" | "auto";
 type ViewTabId = (typeof VIEWS)[number]["id"];
 
 /**
- * Ordem das abas de visualização. Fica no localStorage por projeto — cada
+ * Ordem das abas de visualizaÃ§Ã£o. Fica no localStorage por projeto â€” cada
  * pessoa arruma como prefere. Se a ordem salva estiver desatualizada (aba
- * removida ou adicionada em versão nova do app), completa com o restante na
- * ordem canônica sem descartar a preferência da pessoa.
+ * removida ou adicionada em versÃ£o nova do app), completa com o restante na
+ * ordem canÃ´nica sem descartar a preferÃªncia da pessoa.
  */
 function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) => void] {
   const storageKey = `fluxo:view-order:${projectId}`;
@@ -109,7 +105,7 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
     } catch {
       setOrder(canonical);
     }
-    // canonical é derivado de VIEWS (constante do módulo), não muda entre renders
+    // canonical Ã© derivado de VIEWS (constante do mÃ³dulo), nÃ£o muda entre renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
@@ -118,7 +114,7 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
     } catch {
-      /* modo privado ou cota cheia: só afeta esta sessão */
+      /* modo privado ou cota cheia: sÃ³ afeta esta sessÃ£o */
     }
   };
 
@@ -127,13 +123,13 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
 
 const PANELS: { id: ViewId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "cols", label: "Colunas e campos", icon: Table2 },
-  { id: "auto", label: "Automações", icon: Zap },
-  { id: "config", label: "Configuração", icon: Settings2 },
+  { id: "auto", label: "AutomaÃ§Ãµes", icon: Zap },
+  { id: "config", label: "ConfiguraÃ§Ã£o", icon: Settings2 },
 ];
 
 /**
- * Nome do projeto editável direto no cabeçalho — sem abrir "Editar projeto".
- * Manda só {name} no patch (as outras configurações não são tocadas).
+ * Nome do projeto editÃ¡vel direto no cabeÃ§alho â€” sem abrir "Editar projeto".
+ * Manda sÃ³ {name} no patch (as outras configuraÃ§Ãµes nÃ£o sÃ£o tocadas).
  */
 function EditableProjectName({ project, canEdit }: { project: Project; canEdit: boolean }) {
   const qc = useQueryClient();
@@ -147,7 +143,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
       setEditing(false);
     },
     onError: () => {
-      toast.error("Não foi possível renomear o projeto.");
+      toast.error("NÃ£o foi possÃ­vel renomear o projeto.");
       setEditing(false);
     },
   });
@@ -156,7 +152,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
     if (save.isPending) return;
     const trimmed = value.trim();
     if (!trimmed) {
-      toast.error("O nome do projeto não pode ficar vazio.");
+      toast.error("O nome do projeto nÃ£o pode ficar vazio.");
       setValue(project.name);
       setEditing(false);
       return;
@@ -201,7 +197,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
           }}
           className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-xl font-semibold tracking-tight outline-none disabled:opacity-60"
         />
-        {save.isPending && <span className="shrink-0 text-xs text-muted-foreground">Salvando…</span>}
+        {save.isPending && <span className="shrink-0 text-xs text-muted-foreground">Salvandoâ€¦</span>}
       </div>
     );
   }
@@ -246,10 +242,10 @@ function ProjectDetail() {
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
       qc.invalidateQueries();
-      toast.success("Projeto excluído.");
+      toast.success("Projeto excluÃ­do.");
       navigate({ to: "/projetos" });
     },
-    onError: () => toast.error("Não foi possível excluir o projeto."),
+    onError: () => toast.error("NÃ£o foi possÃ­vel excluir o projeto."),
   });
 
   const duplicate = useMutation({
@@ -257,12 +253,12 @@ function ProjectDetail() {
     onSuccess: (newId) => {
       qc.invalidateQueries();
       toast.success("Projeto duplicado.");
-      // A duplicação já apaga cópia parcial em caso de erro (ver duplicateProject),
-      // então aqui podemos navegar direto sem risco de mandar o usuário para um ID quebrado.
+      // A duplicaÃ§Ã£o jÃ¡ apaga cÃ³pia parcial em caso de erro (ver duplicateProject),
+      // entÃ£o aqui podemos navegar direto sem risco de mandar o usuÃ¡rio para um ID quebrado.
       navigate({ to: "/projetos/$projectId", params: { projectId: newId } });
     },
     onError: (e: unknown) =>
-      toast.error(`Não foi possível duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
+      toast.error(`NÃ£o foi possÃ­vel duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
   });
 
   const project = projects.find((p) => p.id === projectId);
@@ -289,8 +285,8 @@ function ProjectDetail() {
   if (!project) {
     return (
       <EmptyState
-        title="Projeto não encontrado"
-        description="Ele pode ter sido excluído ou você não tem acesso."
+        title="Projeto nÃ£o encontrado"
+        description="Ele pode ter sido excluÃ­do ou vocÃª nÃ£o tem acesso."
         action={
           <Link to="/projetos" className="btn btn-outline">
             Voltar para projetos
@@ -307,7 +303,7 @@ function ProjectDetail() {
     const link = links.find((l) => l.task_id === t.id);
     if (link?.section_id && projectSectionIds.has(link.section_id)) return link.section_id;
     if (t.section_id && projectSectionIds.has(t.section_id)) return t.section_id;
-    // tarefa de outro projeto (ou sem seção): entra na 1ª seção do projeto
+    // tarefa de outro projeto (ou sem seÃ§Ã£o): entra na 1Âª seÃ§Ã£o do projeto
     return firstSectionId;
   };
 
@@ -337,7 +333,7 @@ function ProjectDetail() {
 
   return (
     <div className="space-y-4">
-      {/* cabeçalho */}
+      {/* cabeÃ§alho */}
       <div className="space-y-3">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Link to="/projetos" className="hover:text-foreground hover:underline">
@@ -369,8 +365,8 @@ function ProjectDetail() {
           <div className="min-w-0 flex-1">
             <EditableProjectName project={project} canEdit={hasAccess} />
             <p className="text-xs text-muted-foreground">
-              {health.done} de {health.total} tarefas · {health.progress}% concluído
-              {project.due_date ? ` · entrega ${new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
+              {health.done} de {health.total} tarefas Â· {health.progress}% concluÃ­do
+              {project.due_date ? ` Â· entrega ${new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
             </p>
           </div>
           <Pill tone={health.score >= 75 ? "success" : health.score >= 50 ? "warning" : "danger"}>{health.health}</Pill>
@@ -389,14 +385,14 @@ function ProjectDetail() {
                 ...(hasAccess
                   ? [
                       {
-                        label: duplicate.isPending ? "Duplicando…" : "Duplicar projeto",
+                        label: duplicate.isPending ? "Duplicandoâ€¦" : "Duplicar projeto",
                         icon: Copy,
                         separatorBefore: true,
                         onSelect: () => {
                           if (duplicate.isPending) return;
                           if (
                             confirm(
-                              `Duplicar "${project.name}"? A cópia leva tarefas, subtarefas, campos personalizados e configurações; comentários e histórico não são copiados.`,
+                              `Duplicar "${project.name}"? A cÃ³pia leva tarefas, subtarefas, campos personalizados e configuraÃ§Ãµes; comentÃ¡rios e histÃ³rico nÃ£o sÃ£o copiados.`,
                             )
                           ) {
                             duplicate.mutate();
@@ -423,7 +419,7 @@ function ProjectDetail() {
         </div>
       </div>
 
-      {/* abas — arraste para reordenar; a preferência fica por projeto no navegador */}
+      {/* abas â€” arraste para reordenar; a preferÃªncia fica por projeto no navegador */}
       <nav className="flex items-center gap-1 overflow-x-auto border-b border-border">
         {orderedViews.map((v) => (
           <button
@@ -484,12 +480,12 @@ function ProjectDetail() {
             />
           </div>
           <select
-            aria-label="Filtrar por responsável"
+            aria-label="Filtrar por responsÃ¡vel"
             value={filters.assignee}
             onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
             className="field h-8 w-auto"
           >
-            <option value="">Todos os responsáveis</option>
+            <option value="">Todos os responsÃ¡veis</option>
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -515,7 +511,7 @@ function ProjectDetail() {
               checked={filters.hideDone}
               onChange={(e) => setFilters({ ...filters, hideDone: e.target.checked })}
             />
-            Ocultar concluídas
+            Ocultar concluÃ­das
           </label>
           {filtersOn && (
             <button
@@ -538,10 +534,10 @@ function ProjectDetail() {
       {view === "board" && <BoardView {...viewProps} />}
       {view === "timeline" && <TimelineView {...viewProps} dependencies={dependencies} />}
       {view === "calendar" && <CalendarView {...viewProps} />}
-      {/* Colunas, configuração e automações mexem no projeto — quem não tem
-          acesso a ele (RLS barra a escrita mesmo assim) nem vê a tela. */}
+      {/* Colunas, configuraÃ§Ã£o e automaÃ§Ãµes mexem no projeto â€” quem nÃ£o tem
+          acesso a ele (RLS barra a escrita mesmo assim) nem vÃª a tela. */}
       {!hasAccess && (view === "cols" || view === "config" || view === "auto") ? (
-        <EmptyState title="Sem acesso a esta área" description="Fale com um administrador se precisar mexer aqui." />
+        <EmptyState title="Sem acesso a esta Ã¡rea" description="Fale com um administrador se precisar mexer aqui." />
       ) : (
         <>
           {view === "cols" && (
@@ -553,7 +549,7 @@ function ProjectDetail() {
           {view === "config" && <ProjectSettings project={project} members={members} />}
           {view === "auto" && (
             <AutomationsPanel
-              projectId={projectId}
+              container={{ kind: "project", projectId }}
               automations={projectAutomations}
               members={members}
               sections={projectSections}
@@ -597,7 +593,7 @@ function ProjectDetail() {
   );
 }
 
-/* ---------------- visão geral ---------------- */
+/* ---------------- visÃ£o geral ---------------- */
 
 function OverviewPanel({
   project,
@@ -630,12 +626,12 @@ function OverviewPanel({
         <div className="card-surface space-y-2 p-4">
           <SectionTitle title="Sobre o projeto" />
           <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-            {project.description?.trim() || "Sem descrição ainda. Use “Editar projeto” para contar o que ele entrega."}
+            {project.description?.trim() || "Sem descriÃ§Ã£o ainda. Use â€œEditar projetoâ€ para contar o que ele entrega."}
           </p>
         </div>
 
         <div className="card-surface space-y-3 p-4">
-          <SectionTitle title="Progresso" description={`${health.done} de ${health.total} tarefas concluídas`} />
+          <SectionTitle title="Progresso" description={`${health.done} de ${health.total} tarefas concluÃ­das`} />
           <Bar value={health.progress} tone={health.score >= 75 ? "success" : health.score >= 50 ? "warning" : "danger"} />
           <div className="flex flex-wrap gap-1.5 pt-1">
             {byStatus.map((s) => (
@@ -650,7 +646,7 @@ function OverviewPanel({
 
         <div className="card-surface overflow-hidden">
           <div className="border-b border-border px-4 py-2.5">
-            <SectionTitle title="Próximas entregas" />
+            <SectionTitle title="PrÃ³ximas entregas" />
           </div>
           {upcoming.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground">Nenhuma tarefa aberta com prazo definido.</p>
@@ -690,12 +686,12 @@ function OverviewPanel({
               {PRIORITY_LABEL[project.priority as Priority] ?? project.priority}
             </MetaItem>
             <MetaItem label="Gestor">{nameById(members, project.manager_id)}</MetaItem>
-            <MetaItem label="Saúde">{health.health}</MetaItem>
-            <MetaItem label="Início">
-              {project.start_date ? new Date(`${project.start_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
+            <MetaItem label="SaÃºde">{health.health}</MetaItem>
+            <MetaItem label="InÃ­cio">
+              {project.start_date ? new Date(`${project.start_date}T12:00:00`).toLocaleDateString("pt-BR") : "â€”"}
             </MetaItem>
             <MetaItem label="Entrega">
-              {project.due_date ? new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
+              {project.due_date ? new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "â€”"}
             </MetaItem>
           </div>
         </div>
@@ -715,7 +711,7 @@ function OverviewPanel({
                 </li>
               );
             })}
-            {team.length === 0 && <li className="text-sm text-muted-foreground">Ninguém atribuído ainda.</li>}
+            {team.length === 0 && <li className="text-sm text-muted-foreground">NinguÃ©m atribuÃ­do ainda.</li>}
           </ul>
         </div>
       </div>
@@ -723,7 +719,7 @@ function OverviewPanel({
   );
 }
 
-/* ---------------- configuração do projeto ---------------- */
+/* ---------------- configuraÃ§Ã£o do projeto ---------------- */
 
 function ProjectSettings({ project, members }: { project: Project; members: Member[] }) {
   const qc = useQueryClient();
@@ -740,25 +736,25 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
       }),
     onSuccess: () => {
       qc.invalidateQueries();
-      toast.success("Configuração salva.");
+      toast.success("ConfiguraÃ§Ã£o salva.");
     },
-    onError: () => toast.error("Não foi possível salvar a configuração."),
+    onError: () => toast.error("NÃ£o foi possÃ­vel salvar a configuraÃ§Ã£o."),
   });
 
   return (
     <div className="card-surface max-w-2xl space-y-4 p-4">
       <SectionTitle
-        title="Padrões de novas tarefas"
-        description="Toda tarefa criada neste projeto já nasce com estes valores."
+        title="PadrÃµes de novas tarefas"
+        description="Toda tarefa criada neste projeto jÃ¡ nasce com estes valores."
       />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Responsável padrão">
+        <Field label="ResponsÃ¡vel padrÃ£o">
           <select
             className="field w-full"
             value={form.default_assignee_id}
             onChange={(e) => setForm({ ...form, default_assignee_id: e.target.value })}
           >
-            <option value="">Sem responsável</option>
+            <option value="">Sem responsÃ¡vel</option>
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -766,7 +762,7 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
             ))}
           </select>
         </Field>
-        <Field label="Prazo padrão (dias a partir de hoje)">
+        <Field label="Prazo padrÃ£o (dias a partir de hoje)">
           <input
             type="number"
             min={0}
@@ -780,14 +776,14 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
       </div>
       <div className="flex justify-end">
         <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
-          {save.isPending ? "Salvando..." : "Salvar configuração"}
+          {save.isPending ? "Salvando..." : "Salvar configuraÃ§Ã£o"}
         </button>
       </div>
     </div>
   );
 }
 
-/* ---------------- colunas (padrão + personalizadas) ---------------- */
+/* ---------------- colunas (padrÃ£o + personalizadas) ---------------- */
 
 function ColumnsPanel({
   project,
@@ -808,7 +804,7 @@ function ColumnsPanel({
       qc.invalidateQueries();
       toast.success("Colunas atualizadas.");
     },
-    onError: () => toast.error("Não foi possível salvar as colunas."),
+    onError: () => toast.error("NÃ£o foi possÃ­vel salvar as colunas."),
   });
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((c) => c !== id) : [...s, id]));
@@ -828,7 +824,7 @@ function ColumnsPanel({
 
   return (
     <div className="card-surface space-y-4 p-4">
-      <SectionTitle title="Colunas visíveis" description="Escolha o que aparece na lista e no quadro." />
+      <SectionTitle title="Colunas visÃ­veis" description="Escolha o que aparece na lista e no quadro." />
       <div className="flex flex-wrap gap-2">{TASK_COLUMNS.map((c) => chip(c.id, c.label))}</div>
 
       <div className="space-y-2 border-t border-border pt-4">
@@ -837,7 +833,7 @@ function ColumnsPanel({
           description="Campos personalizados deste projeto exibidos como colunas."
         />
         {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Nenhuma coluna personalizada ainda — crie uma abaixo.</p>
+          <p className="text-xs text-muted-foreground">Nenhuma coluna personalizada ainda â€” crie uma abaixo.</p>
         ) : (
           <div className="flex flex-wrap gap-2">{fields.map((f) => chip(`cf:${f.id}`, f.name))}</div>
         )}
@@ -852,212 +848,6 @@ function ColumnsPanel({
   );
 }
 
-/* ---------------- automações ---------------- */
-
-function AutomationsPanel({
-  projectId,
-  automations,
-  members,
-  sections,
-  projects,
-}: {
-  projectId: string;
-  automations: Automation[];
-  members: Member[];
-  sections: { id: string; name: string }[];
-  projects: { id: string; name: string }[];
-}) {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    name: "",
-    trigger_type: "task_created" as AutoEvent,
-    trigger_value: "",
-    action_type: "set_status",
-    action_value: "",
-  });
-
-  const add = useMutation({
-    mutationFn: () =>
-      createAutomation({
-        project_id: projectId,
-        name: form.name.trim(),
-        trigger_type: form.trigger_type,
-        trigger_value: form.trigger_value || null,
-        action_type: form.action_type,
-        action_value: form.action_value || null,
-      }),
-    onSuccess: () => {
-      setForm({ name: "", trigger_type: "task_created", trigger_value: "", action_type: "set_status", action_value: "" });
-      qc.invalidateQueries();
-      toast.success("Automação criada.");
-    },
-    onError: () => toast.error("Não foi possível criar a automação."),
-  });
-
-  const toggle = useMutation({
-    mutationFn: (a: Automation) => updateAutomation(a.id, { active: !a.active }),
-    onSuccess: () => qc.invalidateQueries(),
-  });
-
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteAutomation(id),
-    onSuccess: () => qc.invalidateQueries(),
-  });
-
-  const actionOptions = () => {
-    switch (form.action_type) {
-      case "set_status":
-        return STATUS_ORDER.map((s) => ({ value: s, label: STATUS_META[s].label }));
-      case "set_assignee":
-        return members.map((m) => ({ value: m.id, label: m.name }));
-      case "set_priority":
-        return PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }));
-      case "move_section":
-      case "set_section":
-        return sections.map((s) => ({ value: s.id, label: s.name }));
-      case "move_project":
-      case "add_project":
-        return projects.map((p) => ({ value: p.id, label: p.name }));
-      default:
-        return null;
-    }
-  };
-  const options = actionOptions();
-
-  const describe = (a: Automation) => {
-    const trigger = TRIGGER_LABEL[a.trigger_type as AutoEvent] ?? a.trigger_type;
-    const cond = a.trigger_value ? ` (${STATUS_META[a.trigger_value as Task["status"]]?.label ?? a.trigger_value})` : "";
-    const action = ACTION_LABEL[a.action_type] ?? a.action_type;
-    const value =
-      a.action_type === "set_assignee"
-        ? (members.find((m) => m.id === a.action_value)?.name ?? "—")
-        : a.action_type === "move_section" || a.action_type === "set_section"
-          ? (sections.find((s) => s.id === a.action_value)?.name ?? "—")
-          : a.action_type === "move_project" || a.action_type === "add_project"
-            ? (projects.find((p) => p.id === a.action_value)?.name ?? "—")
-            : (a.action_value ?? "");
-    return `${trigger}${cond} → ${action} ${value}`.trim();
-  };
-
-  return (
-    <div className="card-surface space-y-4 p-4">
-      <SectionTitle
-        title="Automações"
-        description="Regras que rodam quando a tarefa é criada ou muda de status/responsável."
-      />
-      <ul className="divide-y divide-border">
-        {automations.map((a) => (
-          <li key={a.id} className="flex items-center gap-3 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{a.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{describe(a)}</p>
-            </div>
-            <button
-              onClick={() => toggle.mutate(a)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs",
-                a.active ? "border-success/40 bg-success/10 text-success" : "border-border text-muted-foreground",
-              )}
-            >
-              {a.active ? "Ativa" : "Pausada"}
-            </button>
-            <button
-              onClick={() => remove.mutate(a.id)}
-              aria-label="Excluir automação"
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="size-4" />
-            </button>
-          </li>
-        ))}
-        {automations.length === 0 && <li className="py-2 text-sm text-muted-foreground">Nenhuma automação ainda.</li>}
-      </ul>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (form.name.trim().length < 3) {
-            toast.error("Dê um nome à automação.");
-            return;
-          }
-          add.mutate();
-        }}
-        className="grid gap-2 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-5"
-      >
-        <input
-          placeholder="Nome da regra"
-          maxLength={80}
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="field w-full"
-        />
-        <select
-          aria-label="Gatilho"
-          value={form.trigger_type}
-          onChange={(e) => setForm({ ...form, trigger_type: e.target.value as AutoEvent, trigger_value: "" })}
-          className="field w-full"
-        >
-          {(Object.keys(TRIGGER_LABEL) as AutoEvent[]).map((t) => (
-            <option key={t} value={t}>
-              {TRIGGER_LABEL[t]}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Condição"
-          value={form.trigger_value}
-          onChange={(e) => setForm({ ...form, trigger_value: e.target.value })}
-          disabled={form.trigger_type !== "status_changed"}
-          className="field w-full"
-        >
-          <option value="">Qualquer status</option>
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_META[s].label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Ação"
-          value={form.action_type}
-          onChange={(e) => setForm({ ...form, action_type: e.target.value, action_value: "" })}
-          className="field w-full"
-        >
-          {Object.keys(ACTION_LABEL).map((a) => (
-            <option key={a} value={a}>
-              {ACTION_LABEL[a]}
-            </option>
-          ))}
-        </select>
-        {options ? (
-          <select
-            aria-label="Valor da ação"
-            value={form.action_value}
-            onChange={(e) => setForm({ ...form, action_value: e.target.value })}
-            className="field w-full"
-          >
-            <option value="">Selecione…</option>
-            {options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            aria-label="Valor da ação"
-            placeholder={form.action_type === "notify_assignee" ? "—" : "Valor"}
-            value={form.action_value}
-            disabled={form.action_type === "notify_assignee"}
-            onChange={(e) => setForm({ ...form, action_value: e.target.value })}
-            className="field w-full"
-          />
-        )}
-        <button className="btn btn-primary lg:col-span-5">Criar automação</button>
-      </form>
-    </div>
-  );
-}
 
 /* ---------------- campos personalizados ---------------- */
 
@@ -1087,7 +877,7 @@ function CustomFieldsPanel({
       qc.invalidateQueries();
       toast.success("Campo criado.");
     },
-    onError: () => toast.error("Não foi possível criar o campo."),
+    onError: () => toast.error("NÃ£o foi possÃ­vel criar o campo."),
   });
 
   const remove = useMutation({
@@ -1142,7 +932,7 @@ function CustomFieldsPanel({
           ))}
         </select>
         <input
-          placeholder="Opções (separadas por vírgula)"
+          placeholder="OpÃ§Ãµes (separadas por vÃ­rgula)"
           value={form.options}
           onChange={(e) => setForm({ ...form, options: e.target.value })}
           disabled={form.field_type !== "select"}
@@ -1200,7 +990,7 @@ function EditProject({
       toast.success("Projeto atualizado.");
       onClose();
     },
-    onError: () => toast.error("Não foi possível salvar."),
+    onError: () => toast.error("NÃ£o foi possÃ­vel salvar."),
   });
 
   return (
@@ -1233,7 +1023,7 @@ function EditProject({
           className="field w-full"
         />
       </Field>
-      <Field label="Descrição">
+      <Field label="DescriÃ§Ã£o">
         <textarea
           value={form.description}
           maxLength={1000}
@@ -1259,13 +1049,13 @@ function EditProject({
         </div>
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Portfólio">
+        <Field label="PortfÃ³lio">
           <select
             className="field w-full"
             value={form.portfolio_id}
             onChange={(e) => setForm({ ...form, portfolio_id: e.target.value })}
           >
-            <option value="">Sem portfólio</option>
+            <option value="">Sem portfÃ³lio</option>
             {portfolios.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -1309,7 +1099,7 @@ function EditProject({
             ))}
           </select>
         </Field>
-        <Field label="Início">
+        <Field label="InÃ­cio">
           <input
             type="date"
             className="field w-full"

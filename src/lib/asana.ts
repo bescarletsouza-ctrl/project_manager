@@ -103,9 +103,15 @@ export type TaskProject = {
   position: number;
 };
 
+/**
+ * Automação: uma regra "quando X, faz Y" pertencente a UM container
+ * (projeto XOR departamento). O CHECK do banco (automations_container_ck)
+ * garante o XOR; do lado do cliente é só um union nullable.
+ */
 export type Automation = {
   id: string;
-  project_id: string;
+  project_id: string | null;
+  department_id: string | null;
   name: string;
   trigger_type: string;
   trigger_value: string | null;
@@ -408,7 +414,8 @@ export async function createTaskLinked(
 /* ---------------- automações ---------------- */
 
 export const createAutomation = (payload: {
-  project_id: string;
+  project_id?: string | null;
+  department_id?: string | null;
   name: string;
   trigger_type: string;
   trigger_value?: string | null;

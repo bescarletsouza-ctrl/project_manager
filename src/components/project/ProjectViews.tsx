@@ -190,10 +190,15 @@ export function useSectionMutations(projectId: string, project: Project, automat
           input.dueDate ?? (project.default_due_days ? addDays(project.default_due_days) : null),
         ...(input.position !== undefined ? { position: input.position } : {}),
       };
-      const { patch, applied, moves } = runAutomations(automations, "task_created", base as Partial<Task>, projectId);
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "task_created",
+        base as Partial<Task>,
+        { projectId },
+      );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       const newId = await createTaskLinked({ ...base, ...patch }, [projectId]);
-      if (newId) await applyAutomationMoves(newId, projectId, moves);
+      if (newId) await applyAutomationMoves(newId, { projectId }, moves);
       return newId;
     },
     onSuccess: invalidate,
@@ -300,10 +305,10 @@ function TaskToggle({
         automations,
         "status_changed",
         { ...task, status: status as Task["status"] },
-        task.project_id,
+        { projectId: task.project_id },
       );
       const res = await updateTask(task.id, { status, completed: !done, ...patch });
-      await applyAutomationMoves(task.id, task.project_id, moves);
+      await applyAutomationMoves(task.id, { projectId: task.project_id }, moves);
       return res;
     },
     onSuccess: () => qc.invalidateQueries(),

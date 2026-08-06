@@ -29,20 +29,41 @@ export type AutoMoves = {
   addProjectIds: string[];
 };
 
-/** Aplica as automações ativas do projeto e devolve o patch resultante. */
+/**
+ * Container que "dispara" as automações. Antes só existia projeto — agora
+ * um departamento também pode ter regras próprias (com o mesmo formato).
+ * Convenção: passar { projectId } se veio de projeto (mesmo que null para
+ * task sem projeto) OU { departmentId } se veio do departamento. Nunca os
+ * dois — as automações vivem em um contexto só.
+ */
+export type AutomationContainer =
+  | { projectId: string | null; departmentId?: undefined }
+  | { departmentId: string; projectId?: undefined };
+
+/**
+ * Aplica as automações ativas do container e devolve o patch resultante.
+ * O filtro é: automation.project_id === container.projectId (quando o
+ * container é projeto) OU automation.department_id === container.departmentId
+ * (quando é departamento).
+ */
 export function runAutomations(
   automations: Automation[],
   event: AutoEvent,
   task: Partial<Task>,
-  projectId: string | null,
+  container: AutomationContainer,
 ) {
   const patch: Record<string, unknown> = {};
   const applied: string[] = [];
   const moves: AutoMoves = { addProjectIds: [] };
   let notify = false;
 
+  const containerMatches = (a: Automation) =>
+    container.departmentId !== undefined
+      ? a.department_id === container.departmentId
+      : a.project_id === container.projectId;
+
   for (const a of automations) {
-    if (!a.active || a.project_id !== projectId || a.trigger_type !== event) continue;
+    if (!a.active || !containerMatches(a) || a.trigger_type !== event) continue;
     if (a.trigger_value && event === "status_changed" && a.trigger_value !== task.status) continue;
     if (!a.action_value && a.action_type !== "notify_assignee") continue;
 
@@ -89,14 +110,20 @@ export function runAutomations(
   return { patch, notify, applied, moves };
 }
 
-/** Executa as movimentações de seção/projeto resultantes das automações. */
+/**
+ * Executa as movimentações de seção/projeto resultantes das automações.
+ * Assinatura aceita o mesmo container do runAutomations. Para departamento,
+ * setTaskProjectSection não é chamado (task_projects é vínculo projeto—
+ * tarefa, não tem departamento). O section_id do move já foi aplicado no
+ * patch do runAutomations, o que basta.
+ */
 export async function applyAutomationMoves(
   taskId: string,
-  projectId: string | null,
+  container: AutomationContainer,
   moves: AutoMoves,
 ) {
-  if (moves.sectionId !== undefined && projectId) {
-    await setTaskProjectSection(taskId, projectId, moves.sectionId);
+  if (moves.sectionId !== undefined && container.projectId != null) {
+    await setTaskProjectSection(taskId, container.projectId, moves.sectionId);
   }
   if (moves.moveToProjectId) {
     await linkTaskToProject(taskId, moves.moveToProjectId, null);

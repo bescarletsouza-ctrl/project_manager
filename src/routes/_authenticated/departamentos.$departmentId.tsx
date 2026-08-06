@@ -2,8 +2,9 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { NewTaskDialog } from "@/components/dialogs";
@@ -11,6 +12,7 @@ import { createSection, createTaskLinked, deleteSection, updateSection } from "@
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
 import { useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
+import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { PRIORITY_LABEL, isLate, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -49,15 +51,20 @@ function DepartmentDetail() {
     comments,
     dependencies,
     taskProjects,
-    automations,
+    automations: allAutomations,
     attachments,
   } = useAsanaData();
+  const deptAutomations = allAutomations.filter((a) => a.department_id === departmentId);
+  // TaskPane espera receber as automações do contexto atual — usa para
+  // gatilhos de status_changed e assignee_changed. Como aqui tudo é
+  // do departamento, passamos só as regras deste departamento.
+  const automations = deptAutomations;
   const { member: currentMember, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [newTask, setNewTask] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editHeader, setEditHeader] = useState(false);
-  const [view, setView] = useState<"board" | "list">("board");
+  const [view, setView] = useState<"board" | "list" | "auto">("board");
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   /** Seção em arraste — quando o header de uma coluna/bloco é agarrado. */
@@ -139,21 +146,33 @@ function DepartmentDetail() {
     onError: () => toast.error("Não foi possível reordenar as seções."),
   });
 
-  /** Cria uma tarefa direto no departamento (sem projeto), na seção informada. */
+  /**
+   * Cria uma tarefa direto no departamento (sem projeto). As automações
+   * do próprio departamento rodam no evento task_created — mesma máquina
+   * do projeto, só que filtrada por department_id. Sem seção explícita,
+   * cai na 1ª do departamento (regra do produto).
+   */
   const quickAddTask = useMutation({
-    mutationFn: (input: { title: string; sectionId: string | null }) =>
-      createTaskLinked(
-        {
-          title: input.title,
-          project_id: null,
-          department_id: departmentId,
-          section_id: input.sectionId,
-          status: "a_fazer",
-          assignee_id: currentMember?.id ?? null,
-        },
-        // sem projeto: task_projects não recebe nada
-        [],
-      ),
+    mutationFn: async (input: { title: string; sectionId: string | null }) => {
+      const base: Record<string, unknown> = {
+        title: input.title,
+        project_id: null,
+        department_id: departmentId,
+        section_id: input.sectionId ?? firstSectionId,
+        status: "a_fazer",
+        assignee_id: currentMember?.id ?? null,
+      };
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "task_created",
+        base as Partial<Task>,
+        { departmentId },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      const newId = await createTaskLinked({ ...base, ...patch }, []);
+      if (newId) await applyAutomationMoves(newId, { departmentId }, moves);
+      return newId;
+    },
     onSuccess: () => qc.invalidateQueries(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível criar a tarefa: ${(e as Error)?.message ?? "erro"}`),
@@ -196,27 +215,21 @@ function DepartmentDetail() {
    */
   const deptSectionIds = new Set(sections.map((s) => s.id));
 
-  // Se o departamento ainda não tem seção própria, mostramos "Sem seção"
-  // como coluna única — de resto, ela aparece só quando há alguma tarefa
-  // vinda de projeto ou sem seção alguma pra evitar coluna vazia constante.
+  /**
+   * Tarefas "órfãs": têm department_id mas section_id não é de uma seção
+   * do departamento (veio de projeto, ou nunca teve seção). O produto pediu
+   * que TODA nova demanda incluída no departamento caia na 1ª seção — em vez
+   * de terem uma coluna separada "Sem seção", elas são exibidas dentro da
+   * primeira seção real. Só há coluna virtual "Sem seção" quando o
+   * departamento ainda não tem nenhuma seção (caso contrário, não há UI).
+   */
   const orphanTasks = deptTasks.filter(
     (t) => !t.section_id || !deptSectionIds.has(t.section_id),
   );
+  const firstSectionId = sections[0]?.id ?? null;
   const boardSections =
     sections.length > 0
-      ? orphanTasks.length > 0
-        ? [
-            ...sections,
-            {
-              id: "",
-              department_id: departmentId,
-              project_id: null,
-              name: "Sem seção",
-              color: "slate",
-              position: 999,
-            },
-          ]
-        : sections
+      ? sections
       : [
           {
             id: "",
@@ -319,10 +332,30 @@ function DepartmentDetail() {
           >
             <Columns3 className="size-3.5" /> Quadro
           </button>
+          <button
+            type="button"
+            onClick={() => setView("auto")}
+            className={cn(
+              "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
+              view === "auto"
+                ? "bg-secondary font-medium"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Zap className="size-3.5" /> Automações
+          </button>
         </div>
       </div>
 
-      {view === "list" ? (
+      {view === "auto" ? (
+        <AutomationsPanel
+          container={{ kind: "department", departmentId }}
+          automations={deptAutomations}
+          members={members}
+          sections={sections.map((s) => ({ id: s.id, name: s.name }))}
+          projects={[]}
+        />
+      ) : view === "list" ? (
         <ListPanel
           boardSections={boardSections}
           deptTasks={deptTasks}
@@ -365,7 +398,19 @@ function DepartmentDetail() {
         <div className="flex gap-3 overflow-x-auto pb-4">
           {boardSections.map((section) => {
             const isVirtual = !section.id;
-            const list = (isVirtual ? orphanTasks : deptTasks.filter((t) => t.section_id === section.id))
+            // Órfãs entram na 1ª seção real. Quando não há seções, a coluna
+            // virtual "Sem seção" acaba pegando tudo (fallback único).
+            const isFirst = section.id !== null && section.id === firstSectionId;
+            const list = (
+              isVirtual
+                ? orphanTasks
+                : isFirst
+                  ? [
+                      ...deptTasks.filter((t) => t.section_id === section.id),
+                      ...orphanTasks,
+                    ]
+                  : deptTasks.filter((t) => t.section_id === section.id)
+            )
               // Mesma regra do Quadro do projeto: mais nova em cima.
               .slice()
               .sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -857,7 +902,21 @@ function ListPanel({
     <div className="card-surface divide-y divide-border">
       {boardSections.map((section) => {
         const isVirtual = !section.id;
-        const list = (isVirtual ? orphanTasks : deptTasks.filter((t) => t.section_id === section.id))
+        // Mesma regra da Board view: órfãs acompanham a 1ª seção real. O id
+        // da 1ª é o primeiro elemento não-virtual de boardSections — como
+        // "Sem seção" só entra quando não há seções, e nesse caso ela É a
+        // primeira, isFirst equivale a "primeira posição do vetor".
+        const isFirst = section === boardSections[0] && !isVirtual;
+        const list = (
+          isVirtual
+            ? orphanTasks
+            : isFirst
+              ? [
+                  ...deptTasks.filter((t) => t.section_id === section.id),
+                  ...orphanTasks,
+                ]
+              : deptTasks.filter((t) => t.section_id === section.id)
+        )
           .slice()
           .sort((a, b) => a.created_at.localeCompare(b.created_at));
         const isCollapsed = collapsed[section.id] ?? false;

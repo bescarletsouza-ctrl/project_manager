@@ -20,9 +20,10 @@ export type Database = {
           action_value: string | null
           active: boolean
           created_at: string
+          department_id: string | null
           id: string
           name: string
-          project_id: string
+          project_id: string | null
           trigger_type: string
           trigger_value: string | null
           updated_at: string
@@ -32,9 +33,10 @@ export type Database = {
           action_value?: string | null
           active?: boolean
           created_at?: string
+          department_id?: string | null
           id?: string
           name: string
-          project_id: string
+          project_id?: string | null
           trigger_type?: string
           trigger_value?: string | null
           updated_at?: string
@@ -44,9 +46,10 @@ export type Database = {
           action_value?: string | null
           active?: boolean
           created_at?: string
+          department_id?: string | null
           id?: string
           name?: string
-          project_id?: string
+          project_id?: string | null
           trigger_type?: string
           trigger_value?: string | null
           updated_at?: string
@@ -57,6 +60,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "automations_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
         ]
