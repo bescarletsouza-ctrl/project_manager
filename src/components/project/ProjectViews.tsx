@@ -168,7 +168,18 @@ export function useSectionMutations(projectId: string, project: Project, automat
   });
 
   const addTask = useMutation({
-    mutationFn: async (input: { title: string; sectionId: string | null; dueDate?: string | null }) => {
+    mutationFn: async (input: {
+      title: string;
+      sectionId: string | null;
+      dueDate?: string | null;
+      /**
+       * Position opcional para forçar onde a tarefa entra em ordem manual.
+       * O Quadro passa um valor menor que o mínimo da coluna para que uma
+       * tarefa nova apareça sempre no topo — mesmo se o projeto estiver em
+       * "ordem manual" (do contrário ela cai onde o default do banco mandar).
+       */
+      position?: number;
+    }) => {
       const base: Record<string, unknown> = {
         title: input.title,
         project_id: projectId,
@@ -177,6 +188,7 @@ export function useSectionMutations(projectId: string, project: Project, automat
         assignee_id: project.default_assignee_id ?? null,
         due_date:
           input.dueDate ?? (project.default_due_days ? addDays(project.default_due_days) : null),
+        ...(input.position !== undefined ? { position: input.position } : {}),
       };
       const { patch, applied, moves } = runAutomations(automations, "task_created", base as Partial<Task>, projectId);
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
@@ -1943,6 +1955,10 @@ export function BoardView({
                 b.created_at.localeCompare(a.created_at),
           );
         const listIds = list.map((t) => t.id);
+        // Posição para uma tarefa nova: menor que o mínimo atual, para que
+        // ela apareça no topo mesmo em "ordem manual". Sem tarefas, começa
+        // em 0 e vai descendo (−1, −2, …) a cada nova criação.
+        const topPosition = list.length ? Math.min(...list.map((t) => t.position ?? 0)) - 1 : 0;
         return (
           <div
             key={section.id || "none"}
@@ -1963,7 +1979,9 @@ export function BoardView({
             <SectionContextMenu
               section={section}
               onRename={section.id ? () => setRenamingSectionId(section.id) : undefined}
-              onAddTask={() => addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null })}
+              onAddTask={() =>
+                addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null, position: topPosition })
+              }
               onDuplicate={section.id ? () => dupSection.mutate(section.id) : undefined}
               onRemove={section.id ? () => removeSection.mutate(section.id) : undefined}
             >
@@ -2075,7 +2093,7 @@ export function BoardView({
 
             <AddTaskRow
               className="mt-1 rounded-md"
-              onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null })}
+              onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null, position: topPosition })}
             />
           </div>
         );
