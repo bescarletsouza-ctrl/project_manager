@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronDown, Flag, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
@@ -57,6 +57,10 @@ function DepartmentDetail() {
   const [newTask, setNewTask] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editHeader, setEditHeader] = useState(false);
+  const [view, setView] = useState<"board" | "list">("board");
+  /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [overSectionId, setOverSectionId] = useState<string | null>(null);
 
   const department = departments.find((d) => d.id === departmentId);
 
@@ -106,6 +110,20 @@ function DepartmentDetail() {
     onError: () => toast.error("Não foi possível remover a seção."),
   });
 
+  /**
+   * Move um card entre colunas do quadro do departamento. Muda só a
+   * section_id da tarefa — o vínculo com projeto (task_projects) segue
+   * intacto. Se a tarefa era de um projeto, ela agora tem section_id de
+   * uma seção do departamento; no quadro do projeto ela cai para "Sem
+   * seção" (o oposto é o que estava faltando antes).
+   */
+  const moveTask = useMutation({
+    mutationFn: (input: { taskId: string; sectionId: string | null }) =>
+      updateTask(input.taskId, { section_id: input.sectionId }),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível mover a tarefa."),
+  });
+
   /** Cria uma tarefa direto no departamento (sem projeto), na seção informada. */
   const quickAddTask = useMutation({
     mutationFn: (input: { title: string; sectionId: string | null }) =>
@@ -141,13 +159,47 @@ function DepartmentDetail() {
   const sections = allSections.filter((s) => s.department_id === departmentId);
   const deptTasks = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
   const deptMembers = members.filter((m) => m.department_id === departmentId);
+  /**
+   * Set das seções que pertencem A ESTE departamento. Serve pra decidir
+   * onde renderizar uma tarefa cujo section_id existe mas é de outro
+   * container (ex.: veio de um projeto e o usuário marcou o departamento).
+   * Sem esse tratamento a tarefa sumia — não casava com nenhuma seção do
+   * departamento e nem entrava na virtual "Sem seção" (que só pegava
+   * section_id === null).
+   */
+  const deptSectionIds = new Set(sections.map((s) => s.id));
 
-  // Se ainda não há nenhuma seção, mostramos "Sem seção" como caixa única
-  // — de resto, o botão "Adicionar seção" fica visível em qualquer estado.
+  // Se o departamento ainda não tem seção própria, mostramos "Sem seção"
+  // como coluna única — de resto, ela aparece só quando há alguma tarefa
+  // vinda de projeto ou sem seção alguma pra evitar coluna vazia constante.
+  const orphanTasks = deptTasks.filter(
+    (t) => !t.section_id || !deptSectionIds.has(t.section_id),
+  );
   const boardSections =
     sections.length > 0
-      ? sections
-      : [{ id: "", department_id: departmentId, project_id: null, name: "Sem seção", color: "slate", position: 999 }];
+      ? orphanTasks.length > 0
+        ? [
+            ...sections,
+            {
+              id: "",
+              department_id: departmentId,
+              project_id: null,
+              name: "Sem seção",
+              color: "slate",
+              position: 999,
+            },
+          ]
+        : sections
+      : [
+          {
+            id: "",
+            department_id: departmentId,
+            project_id: null,
+            name: "Sem seção",
+            color: "slate",
+            position: 999,
+          },
+        ];
 
   return (
     <div className="space-y-4">
@@ -208,13 +260,63 @@ function DepartmentDetail() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs">
-        <Pill tone="info">{deptTasks.length} tarefas</Pill>
-        <Pill>{sections.length} seções</Pill>
-        <Pill>{deptMembers.length} pessoas no departamento</Pill>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Pill tone="info">{deptTasks.length} tarefas</Pill>
+          <Pill>{sections.length} seções</Pill>
+          <Pill>{deptMembers.length} pessoas no departamento</Pill>
+        </div>
+        {/* Switcher de visualização — mesmo padrão visual das abas do projeto. */}
+        <div className="flex items-center gap-1 rounded-md border border-border bg-background p-0.5 text-[13px]">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={cn(
+              "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
+              view === "list"
+                ? "bg-secondary font-medium"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <List className="size-3.5" /> Lista
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("board")}
+            className={cn(
+              "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
+              view === "board"
+                ? "bg-secondary font-medium"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Columns3 className="size-3.5" /> Quadro
+          </button>
+        </div>
       </div>
 
-      {boardSections.length === 0 ? (
+      {view === "list" ? (
+        <ListPanel
+          boardSections={boardSections}
+          deptTasks={deptTasks}
+          orphanTasks={orphanTasks}
+          members={members}
+          renamingSectionId={renaming}
+          onRenameStart={(id) => setRenaming(id)}
+          onRenameCommit={(id, name) => {
+            renameSection.mutate({ id, name });
+            setRenaming(null);
+          }}
+          onRenameCancel={() => setRenaming(null)}
+          onRemoveSection={(id, name) => {
+            if (confirm(`Excluir a seção "${name}" e as tarefas dela?`)) {
+              removeSection.mutate(id);
+            }
+          }}
+          onAddTask={(sectionId, title) => quickAddTask.mutate({ title, sectionId })}
+          onOpenTask={(t) => setOpenTask(t)}
+        />
+      ) : boardSections.length === 0 ? (
         <EmptyState
           title="Sem seções ainda"
           description="Adicione a primeira para começar a organizar as tarefas."
@@ -223,8 +325,7 @@ function DepartmentDetail() {
         <div className="flex gap-3 overflow-x-auto pb-4">
           {boardSections.map((section) => {
             const isVirtual = !section.id;
-            const list = deptTasks
-              .filter((t) => (isVirtual ? !t.section_id : t.section_id === section.id))
+            const list = (isVirtual ? orphanTasks : deptTasks.filter((t) => t.section_id === section.id))
               // Mesma regra do Quadro do projeto: mais nova em cima.
               .slice()
               .sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -232,7 +333,27 @@ function DepartmentDetail() {
             return (
               <div
                 key={section.id || "none"}
-                className="flex w-[290px] shrink-0 flex-col rounded-lg bg-secondary/50 p-2"
+                onDragOver={(e) => {
+                  if (!dragTaskId) return;
+                  e.preventDefault();
+                  setOverSectionId(section.id);
+                }}
+                onDragLeave={() =>
+                  setOverSectionId((o) => (o === section.id ? null : o))
+                }
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragTaskId) {
+                    // Uma seção virtual "Sem seção" solta o section_id (vira null).
+                    moveTask.mutate({ taskId: dragTaskId, sectionId: section.id || null });
+                  }
+                  setDragTaskId(null);
+                  setOverSectionId(null);
+                }}
+                className={cn(
+                  "flex w-[290px] shrink-0 flex-col rounded-lg bg-secondary/50 p-2 transition-shadow",
+                  overSectionId === section.id && "ring-2 ring-brand/40",
+                )}
               >
                 <SectionHeader
                   name={section.name}
@@ -263,6 +384,12 @@ function DepartmentDetail() {
                       task={t}
                       assigneeName={members.find((m) => m.id === t.assignee_id)?.name}
                       assigneeColor={members.find((m) => m.id === t.assignee_id)?.avatar_color}
+                      dragging={dragTaskId === t.id}
+                      onDragStart={() => setDragTaskId(t.id)}
+                      onDragEnd={() => {
+                        setDragTaskId(null);
+                        setOverSectionId(null);
+                      }}
                       onOpen={() => setOpenTask(t)}
                     />
                   ))}
@@ -401,11 +528,17 @@ function TaskCard({
   task,
   assigneeName,
   assigneeColor,
+  dragging,
+  onDragStart,
+  onDragEnd,
   onOpen,
 }: {
   task: Task;
   assigneeName: string | undefined;
   assigneeColor: string | undefined;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
   onOpen: () => void;
 }) {
   const qc = useQueryClient();
@@ -431,6 +564,12 @@ function TaskCard({
       <div
         role="button"
         tabIndex={0}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/task-id", task.id);
+          onDragStart();
+        }}
+        onDragEnd={onDragEnd}
         onClick={onOpen}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -438,7 +577,10 @@ function TaskCard({
             onOpen();
           }
         }}
-        className="w-full cursor-pointer space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring"
+        className={cn(
+          "w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing",
+          dragging && "opacity-50",
+        )}
       >
         <div className="flex items-start gap-2">
           <button
@@ -585,5 +727,185 @@ function AddSection({ onAdd }: { onAdd: (name: string) => void }) {
         className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-ring focus:outline-none"
       />
     </form>
+  );
+}
+
+/* --------------------------- Visualização: Lista --------------------------- */
+
+/**
+ * Lista agrupada por seção — cada bloco é colapsável, com cabeçalho igual ao
+ * do quadro. Reusa os mesmos handlers (renomear seção, criar tarefa, abrir
+ * tarefa) para não ter dois caminhos de escrita separados.
+ */
+function ListPanel({
+  boardSections,
+  deptTasks,
+  orphanTasks,
+  members,
+  renamingSectionId,
+  onRenameStart,
+  onRenameCommit,
+  onRenameCancel,
+  onRemoveSection,
+  onAddTask,
+  onOpenTask,
+}: {
+  boardSections: {
+    id: string;
+    name: string;
+    department_id: string | null;
+    project_id: string | null;
+    color: string;
+    position: number;
+  }[];
+  deptTasks: Task[];
+  orphanTasks: Task[];
+  members: { id: string; name: string; avatar_color: string }[];
+  renamingSectionId: string | null;
+  onRenameStart: (id: string) => void;
+  onRenameCommit: (id: string, name: string) => void;
+  onRenameCancel: () => void;
+  onRemoveSection: (id: string, name: string) => void;
+  onAddTask: (sectionId: string | null, title: string) => void;
+  onOpenTask: (t: Task) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  return (
+    <div className="card-surface divide-y divide-border">
+      {boardSections.map((section) => {
+        const isVirtual = !section.id;
+        const list = (isVirtual ? orphanTasks : deptTasks.filter((t) => t.section_id === section.id))
+          .slice()
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+        const isCollapsed = collapsed[section.id] ?? false;
+
+        return (
+          <div key={section.id || "none"} className="px-3 py-2">
+            <SectionHeader
+              name={section.name}
+              count={list.length}
+              editing={renamingSectionId === section.id}
+              onStartEdit={isVirtual ? undefined : () => onRenameStart(section.id)}
+              onCommitName={(name) => onRenameCommit(section.id, name)}
+              onCancelEdit={onRenameCancel}
+              onAddTask={() =>
+                setCollapsed((c) => ({ ...c, [section.id]: false }))
+              }
+              onRemove={isVirtual ? undefined : () => onRemoveSection(section.id, section.name)}
+            />
+            <button
+              type="button"
+              aria-label={isCollapsed ? "Expandir seção" : "Recolher seção"}
+              onClick={() =>
+                setCollapsed((c) => ({ ...c, [section.id]: !isCollapsed }))
+              }
+              className="sr-only"
+            />
+            {!isCollapsed && (
+              <div className="mt-1 divide-y divide-border/60">
+                {list.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">Nenhuma tarefa nesta seção.</p>
+                )}
+                {list.map((t) => {
+                  const assignee = members.find((m) => m.id === t.assignee_id);
+                  const done = t.status === "concluido";
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => onOpenTask(t)}
+                      className="flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-secondary/50"
+                    >
+                      <span
+                        className={cn(
+                          "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                          done ? "border-success bg-success text-white" : "border-input",
+                        )}
+                      >
+                        {done && <Check className="size-2.5" strokeWidth={3} />}
+                      </span>
+                      <span className={cn("flex-1 truncate text-sm", done && "text-muted-foreground line-through")}>
+                        {t.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
+                        {t.title}
+                      </span>
+                      <span className="hidden sm:block">
+                        <Pill
+                          tone={
+                            t.priority === "urgente"
+                              ? "danger"
+                              : t.priority === "alta"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
+                          {PRIORITY_LABEL[t.priority as Priority] ?? t.priority}
+                        </Pill>
+                      </span>
+                      <span className="hidden md:block">
+                        <StatusBadge status={t.status} />
+                      </span>
+                      <span className="hidden lg:block w-24 truncate text-xs text-muted-foreground">
+                        {t.due_date ? shortDate(t.due_date) : "—"}
+                      </span>
+                      <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
+                    </button>
+                  );
+                })}
+                <div className="pt-1">
+                  <ListQuickAdd onAdd={(title) => onAddTask(section.id || null, title)} />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Linha "+ Adicionar tarefa" para o modo Lista. */
+function ListQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+      >
+        <Plus className="size-4" /> Adicionar tarefa
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5">
+      <span className="size-4 shrink-0 rounded-full border border-dashed border-input" />
+      <input
+        autoFocus
+        value={value}
+        maxLength={140}
+        placeholder="Escreva e pressione Enter"
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && value.trim().length >= 2) {
+            onAdd(value.trim());
+            setValue("");
+          }
+          if (e.key === "Escape") {
+            setValue("");
+            setEditing(false);
+          }
+        }}
+        onBlur={() => {
+          if (value.trim().length >= 2) onAdd(value.trim());
+          setValue("");
+          setEditing(false);
+        }}
+        className="w-full rounded-md border border-transparent bg-transparent px-1 py-1 text-sm focus:border-ring focus:outline-none"
+      />
+    </div>
   );
 }
