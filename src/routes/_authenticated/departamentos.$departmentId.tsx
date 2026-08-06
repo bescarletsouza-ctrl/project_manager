@@ -60,6 +60,8 @@ function DepartmentDetail() {
   const [view, setView] = useState<"board" | "list">("board");
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  /** Seção em arraste — quando o header de uma coluna/bloco é agarrado. */
+  const [dragSectionId, setDragSectionId] = useState<string | null>(null);
   const [overSectionId, setOverSectionId] = useState<string | null>(null);
 
   const department = departments.find((d) => d.id === departmentId);
@@ -124,6 +126,19 @@ function DepartmentDetail() {
     onError: () => toast.error("Não foi possível mover a tarefa."),
   });
 
+  /**
+   * Reordena seções do departamento. Recebe a lista de ids na ordem final
+   * e grava position por índice — mesmo padrão do useSectionMutations do
+   * projeto. A ordenação no quadro/lista é por position ASC (herdada da
+   * sectionsQuery), então essa gravação já refletiu no próximo render.
+   */
+  const reorderSections = useMutation({
+    mutationFn: (ids: string[]) =>
+      Promise.all(ids.map((id, i) => updateSection(id, { position: i }))),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível reordenar as seções."),
+  });
+
   /** Cria uma tarefa direto no departamento (sem projeto), na seção informada. */
   const quickAddTask = useMutation({
     mutationFn: (input: { title: string; sectionId: string | null }) =>
@@ -157,6 +172,18 @@ function DepartmentDetail() {
   }
 
   const sections = allSections.filter((s) => s.department_id === departmentId);
+  /**
+   * Insere a seção arrastada na posição da alvo. targetId "" (virtual
+   * "Sem seção") empurra a arrastada pro fim — a virtual não tem
+   * position no banco, então nunca é reordenada.
+   */
+  const dropSectionOn = (targetId: string) => {
+    if (!dragSectionId || dragSectionId === targetId) return;
+    const ids = sections.map((s) => s.id).filter((id) => id !== dragSectionId);
+    const at = sections.findIndex((s) => s.id === targetId);
+    ids.splice(at < 0 ? ids.length : at, 0, dragSectionId);
+    reorderSections.mutate(ids);
+  };
   const deptTasks = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
   const deptMembers = members.filter((m) => m.department_id === departmentId);
   /**
@@ -315,6 +342,19 @@ function DepartmentDetail() {
           }}
           onAddTask={(sectionId, title) => quickAddTask.mutate({ title, sectionId })}
           onOpenTask={(t) => setOpenTask(t)}
+          dragSectionId={dragSectionId}
+          overSectionId={overSectionId}
+          onSectionDragStart={(id) => setDragSectionId(id)}
+          onSectionDragEnd={() => {
+            setDragSectionId(null);
+            setOverSectionId(null);
+          }}
+          onSectionOver={(id) => setOverSectionId(id)}
+          onSectionDrop={(targetId) => {
+            dropSectionOn(targetId);
+            setDragSectionId(null);
+            setOverSectionId(null);
+          }}
         />
       ) : boardSections.length === 0 ? (
         <EmptyState
@@ -334,7 +374,9 @@ function DepartmentDetail() {
               <div
                 key={section.id || "none"}
                 onDragOver={(e) => {
-                  if (!dragTaskId) return;
+                  // Aceita tanto arraste de tarefa quanto de seção. Sem esse
+                  // preventDefault o onDrop nunca dispara.
+                  if (!dragTaskId && !dragSectionId) return;
                   e.preventDefault();
                   setOverSectionId(section.id);
                 }}
@@ -343,11 +385,15 @@ function DepartmentDetail() {
                 }
                 onDrop={(e) => {
                   e.preventDefault();
-                  if (dragTaskId) {
+                  if (dragSectionId && section.id) {
+                    // Solta seção sobre uma coluna real → reordena.
+                    dropSectionOn(section.id);
+                  } else if (dragTaskId) {
                     // Uma seção virtual "Sem seção" solta o section_id (vira null).
                     moveTask.mutate({ taskId: dragTaskId, sectionId: section.id || null });
                   }
                   setDragTaskId(null);
+                  setDragSectionId(null);
                   setOverSectionId(null);
                 }}
                 className={cn(
@@ -359,6 +405,12 @@ function DepartmentDetail() {
                   name={section.name}
                   count={list.length}
                   editing={renaming === section.id}
+                  draggable={!isVirtual}
+                  onDragStart={() => section.id && setDragSectionId(section.id)}
+                  onDragEnd={() => {
+                    setDragSectionId(null);
+                    setOverSectionId(null);
+                  }}
                   onStartEdit={isVirtual ? undefined : () => setRenaming(section.id)}
                   onCommitName={(name) => {
                     if (section.id) renameSection.mutate({ id: section.id, name });
@@ -450,6 +502,9 @@ function SectionHeader({
   onCancelEdit,
   onAddTask,
   onRemove,
+  draggable,
+  onDragStart,
+  onDragEnd,
 }: {
   name: string;
   count: number;
@@ -460,9 +515,21 @@ function SectionHeader({
   onCancelEdit: () => void;
   onAddTask: () => void;
   onRemove: (() => void) | undefined;
+  /** Coluna virtual "Sem seção" nunca é arrastável — sem position no banco. */
+  draggable?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-1.5 px-1.5 py-1">
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={cn(
+        "group flex items-center gap-1.5 px-1.5 py-1",
+        draggable && "cursor-grab active:cursor-grabbing",
+      )}
+    >
       <ChevronDown className="size-4 text-muted-foreground" />
       {editing ? (
         <input
@@ -749,6 +816,12 @@ function ListPanel({
   onRemoveSection,
   onAddTask,
   onOpenTask,
+  dragSectionId,
+  overSectionId,
+  onSectionDragStart,
+  onSectionDragEnd,
+  onSectionOver,
+  onSectionDrop,
 }: {
   boardSections: {
     id: string;
@@ -768,6 +841,15 @@ function ListPanel({
   onRemoveSection: (id: string, name: string) => void;
   onAddTask: (sectionId: string | null, title: string) => void;
   onOpenTask: (t: Task) => void;
+  /** Estado de reordenação de seção — vem do componente pai para ser
+   *  compartilhado com o Quadro (o hover/drop é feito aqui, mas quem
+   *  mantém o dragSectionId é o pai). */
+  dragSectionId: string | null;
+  overSectionId: string | null;
+  onSectionDragStart: (id: string) => void;
+  onSectionDragEnd: () => void;
+  onSectionOver: (id: string) => void;
+  onSectionDrop: (targetId: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -781,11 +863,33 @@ function ListPanel({
         const isCollapsed = collapsed[section.id] ?? false;
 
         return (
-          <div key={section.id || "none"} className="px-3 py-2">
+          <div
+            key={section.id || "none"}
+            onDragOver={(e) => {
+              // Só aceita o drop de outra seção — dentro da lista não movemos
+              // tarefas (a UX é clique-para-abrir); reordenar tarefas fica no
+              // Quadro, que é o lugar natural.
+              if (!dragSectionId || dragSectionId === section.id || isVirtual) return;
+              e.preventDefault();
+              onSectionOver(section.id);
+            }}
+            onDrop={(e) => {
+              if (!dragSectionId || isVirtual) return;
+              e.preventDefault();
+              onSectionDrop(section.id);
+            }}
+            className={cn(
+              "px-3 py-2 transition-colors",
+              overSectionId === section.id && !isVirtual && "bg-brand/5",
+            )}
+          >
             <SectionHeader
               name={section.name}
               count={list.length}
               editing={renamingSectionId === section.id}
+              draggable={!isVirtual}
+              onDragStart={() => section.id && onSectionDragStart(section.id)}
+              onDragEnd={onSectionDragEnd}
               onStartEdit={isVirtual ? undefined : () => onRenameStart(section.id)}
               onCommitName={(name) => onRenameCommit(section.id, name)}
               onCancelEdit={onRenameCancel}
