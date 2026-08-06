@@ -13,9 +13,15 @@ export type Portfolio = {
   created_at: string;
 };
 
+/**
+ * Seção é um container leve para tarefas. Pertence a UM projeto OU a UM
+ * departamento — não aos dois. O CHECK constraint no banco (sections_container_ck)
+ * é o que garante que uma delas seja NULL; do lado do cliente é só um union.
+ */
 export type Section = {
   id: string;
-  project_id: string;
+  project_id: string | null;
+  department_id: string | null;
   name: string;
   color: string;
   position: number;
@@ -223,9 +229,18 @@ export const updatePortfolio = (id: string, patch: Partial<Portfolio>) =>
   run(table("portfolios").update(patch as never).eq("id", id));
 export const deletePortfolio = (id: string) => run(table("portfolios").delete().eq("id", id));
 
-/* seções */
-export const createSection = (payload: { project_id: string; name: string; position?: number; color?: string }) =>
-  run(table("sections").insert(payload as never));
+/**
+ * Cria uma seção. Exige exatamente UM entre project_id e department_id — os
+ * dois lados chamam esta função (ProjectViews e DepartmentViews), então a
+ * assinatura aceita ambos e o CHECK do banco rejeita quem passar 0 ou 2.
+ */
+export const createSection = (payload: {
+  project_id?: string | null;
+  department_id?: string | null;
+  name: string;
+  position?: number;
+  color?: string;
+}) => run(table("sections").insert(payload as never));
 export const updateSection = (id: string, patch: Partial<Section>) =>
   run(table("sections").update(patch as never).eq("id", id));
 export const deleteSection = (id: string) => run(table("sections").delete().eq("id", id));

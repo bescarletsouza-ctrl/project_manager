@@ -1593,10 +1593,19 @@ export function ListView({
   // o critério vale para o projeto inteiro. Sem esse achatamento, cada seção
   // ordenava internamente e a percepção era de "só funciona em algumas".
   const groups: Section[] = sort
-    ? [{ id: "__sorted__", project_id: projectId, name: `Ordenado por ${sortLabel(sort.key)}`, color: "slate", position: 0 }]
+    ? [
+        {
+          id: "__sorted__",
+          project_id: projectId,
+          department_id: null,
+          name: `Ordenado por ${sortLabel(sort.key)}`,
+          color: "slate",
+          position: 0,
+        },
+      ]
     : [
         ...sections,
-        { id: "", project_id: projectId, name: "Sem seção", color: "slate", position: 999 },
+        { id: "", project_id: projectId, department_id: null, name: "Sem seção", color: "slate", position: 999 },
       ];
 
   return (
@@ -1911,7 +1920,7 @@ export function BoardView({
   const unsectioned = tasks.filter((t) => !sectionOf(t) && !t.parent_task_id);
   const boardSections: Section[] =
     unsectioned.length > 0
-      ? [...sections, { id: "", project_id: project.id, name: "Sem seção", color: "slate", position: 999 }]
+      ? [...sections, { id: "", project_id: project.id, department_id: null, name: "Sem seção", color: "slate", position: 999 }]
       : sections;
 
   if (boardSections.length === 0) {

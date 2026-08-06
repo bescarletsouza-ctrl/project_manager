@@ -483,28 +483,31 @@ export type Database = {
         Row: {
           color: string
           created_at: string
+          department_id: string | null
           id: string
           name: string
           position: number
-          project_id: string
+          project_id: string | null
           updated_at: string
         }
         Insert: {
           color?: string
           created_at?: string
+          department_id?: string | null
           id?: string
           name: string
           position?: number
-          project_id: string
+          project_id?: string | null
           updated_at?: string
         }
         Update: {
           color?: string
           created_at?: string
+          department_id?: string | null
           id?: string
           name?: string
           position?: number
-          project_id?: string
+          project_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -513,6 +516,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sections_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
         ]

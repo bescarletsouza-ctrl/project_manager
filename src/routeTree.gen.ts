@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedCaixaDeEntradaRouteImport } from './routes/_authenticated/caixa-de-entrada'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedDepartamentosRouteImport } from './routes/_authenticated/departamentos'
 import { Route as AuthenticatedMinhasTarefasRouteImport } from './routes/_authenticated/minhas-tarefas'
 import { Route as AuthenticatedPessoasRouteImport } from './routes/_authenticated/pessoas'
 import { Route as AuthenticatedPortfoliosRouteImport } from './routes/_authenticated/portfolios'
@@ -22,6 +23,8 @@ import { Route as AuthenticatedProjetosRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedRelatoriosRouteImport } from './routes/_authenticated/relatorios'
 import { Route as AuthenticatedTarefasRouteImport } from './routes/_authenticated/tarefas'
 import { Route as AuthenticatedWorkloadRouteImport } from './routes/_authenticated/workload'
+import { Route as AuthenticatedDepartamentosIndexRouteImport } from './routes/_authenticated/departamentos.index'
+import { Route as AuthenticatedDepartamentosDepartmentIdRouteImport } from './routes/_authenticated/departamentos.$departmentId'
 import { Route as AuthenticatedPortfoliosIndexRouteImport } from './routes/_authenticated/portfolios.index'
 import { Route as AuthenticatedPortfoliosPortfolioIdRouteImport } from './routes/_authenticated/portfolios.$portfolioId'
 import { Route as AuthenticatedProjetosIndexRouteImport } from './routes/_authenticated/projetos.index'
@@ -58,6 +61,12 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDepartamentosRoute =
+  AuthenticatedDepartamentosRouteImport.update({
+    id: '/departamentos',
+    path: '/departamentos',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedMinhasTarefasRoute =
   AuthenticatedMinhasTarefasRouteImport.update({
     id: '/minhas-tarefas',
@@ -94,6 +103,18 @@ const AuthenticatedWorkloadRoute = AuthenticatedWorkloadRouteImport.update({
   path: '/workload',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDepartamentosIndexRoute =
+  AuthenticatedDepartamentosIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedDepartamentosRoute,
+  } as any)
+const AuthenticatedDepartamentosDepartmentIdRoute =
+  AuthenticatedDepartamentosDepartmentIdRouteImport.update({
+    id: '/$departmentId',
+    path: '/$departmentId',
+    getParentRoute: () => AuthenticatedDepartamentosRoute,
+  } as any)
 const AuthenticatedPortfoliosIndexRoute =
   AuthenticatedPortfoliosIndexRouteImport.update({
     id: '/',
@@ -125,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/caixa-de-entrada': typeof AuthenticatedCaixaDeEntradaRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/departamentos': typeof AuthenticatedDepartamentosRouteWithChildren
   '/minhas-tarefas': typeof AuthenticatedMinhasTarefasRoute
   '/pessoas': typeof AuthenticatedPessoasRoute
   '/portfolios': typeof AuthenticatedPortfoliosRouteWithChildren
@@ -132,8 +154,10 @@ export interface FileRoutesByFullPath {
   '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/workload': typeof AuthenticatedWorkloadRoute
+  '/departamentos/$departmentId': typeof AuthenticatedDepartamentosDepartmentIdRoute
   '/portfolios/$portfolioId': typeof AuthenticatedPortfoliosPortfolioIdRoute
   '/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/departamentos/': typeof AuthenticatedDepartamentosIndexRoute
   '/portfolios/': typeof AuthenticatedPortfoliosIndexRoute
   '/projetos/': typeof AuthenticatedProjetosIndexRoute
 }
@@ -148,8 +172,10 @@ export interface FileRoutesByTo {
   '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/workload': typeof AuthenticatedWorkloadRoute
+  '/departamentos/$departmentId': typeof AuthenticatedDepartamentosDepartmentIdRoute
   '/portfolios/$portfolioId': typeof AuthenticatedPortfoliosPortfolioIdRoute
   '/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/departamentos': typeof AuthenticatedDepartamentosIndexRoute
   '/portfolios': typeof AuthenticatedPortfoliosIndexRoute
   '/projetos': typeof AuthenticatedProjetosIndexRoute
 }
@@ -161,6 +187,7 @@ export interface FileRoutesById {
   '/_authenticated/caixa-de-entrada': typeof AuthenticatedCaixaDeEntradaRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/departamentos': typeof AuthenticatedDepartamentosRouteWithChildren
   '/_authenticated/minhas-tarefas': typeof AuthenticatedMinhasTarefasRoute
   '/_authenticated/pessoas': typeof AuthenticatedPessoasRoute
   '/_authenticated/portfolios': typeof AuthenticatedPortfoliosRouteWithChildren
@@ -168,8 +195,10 @@ export interface FileRoutesById {
   '/_authenticated/relatorios': typeof AuthenticatedRelatoriosRoute
   '/_authenticated/tarefas': typeof AuthenticatedTarefasRoute
   '/_authenticated/workload': typeof AuthenticatedWorkloadRoute
+  '/_authenticated/departamentos/$departmentId': typeof AuthenticatedDepartamentosDepartmentIdRoute
   '/_authenticated/portfolios/$portfolioId': typeof AuthenticatedPortfoliosPortfolioIdRoute
   '/_authenticated/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/_authenticated/departamentos/': typeof AuthenticatedDepartamentosIndexRoute
   '/_authenticated/portfolios/': typeof AuthenticatedPortfoliosIndexRoute
   '/_authenticated/projetos/': typeof AuthenticatedProjetosIndexRoute
 }
@@ -181,6 +210,7 @@ export interface FileRouteTypes {
     | '/caixa-de-entrada'
     | '/configuracoes'
     | '/dashboard'
+    | '/departamentos'
     | '/minhas-tarefas'
     | '/pessoas'
     | '/portfolios'
@@ -188,8 +218,10 @@ export interface FileRouteTypes {
     | '/relatorios'
     | '/tarefas'
     | '/workload'
+    | '/departamentos/$departmentId'
     | '/portfolios/$portfolioId'
     | '/projetos/$projectId'
+    | '/departamentos/'
     | '/portfolios/'
     | '/projetos/'
   fileRoutesByTo: FileRoutesByTo
@@ -204,8 +236,10 @@ export interface FileRouteTypes {
     | '/relatorios'
     | '/tarefas'
     | '/workload'
+    | '/departamentos/$departmentId'
     | '/portfolios/$portfolioId'
     | '/projetos/$projectId'
+    | '/departamentos'
     | '/portfolios'
     | '/projetos'
   id:
@@ -216,6 +250,7 @@ export interface FileRouteTypes {
     | '/_authenticated/caixa-de-entrada'
     | '/_authenticated/configuracoes'
     | '/_authenticated/dashboard'
+    | '/_authenticated/departamentos'
     | '/_authenticated/minhas-tarefas'
     | '/_authenticated/pessoas'
     | '/_authenticated/portfolios'
@@ -223,8 +258,10 @@ export interface FileRouteTypes {
     | '/_authenticated/relatorios'
     | '/_authenticated/tarefas'
     | '/_authenticated/workload'
+    | '/_authenticated/departamentos/$departmentId'
     | '/_authenticated/portfolios/$portfolioId'
     | '/_authenticated/projetos/$projectId'
+    | '/_authenticated/departamentos/'
     | '/_authenticated/portfolios/'
     | '/_authenticated/projetos/'
   fileRoutesById: FileRoutesById
@@ -279,6 +316,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/departamentos': {
+      id: '/_authenticated/departamentos'
+      path: '/departamentos'
+      fullPath: '/departamentos'
+      preLoaderRoute: typeof AuthenticatedDepartamentosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/minhas-tarefas': {
       id: '/_authenticated/minhas-tarefas'
       path: '/minhas-tarefas'
@@ -328,6 +372,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWorkloadRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/departamentos/': {
+      id: '/_authenticated/departamentos/'
+      path: '/'
+      fullPath: '/departamentos/'
+      preLoaderRoute: typeof AuthenticatedDepartamentosIndexRouteImport
+      parentRoute: typeof AuthenticatedDepartamentosRoute
+    }
+    '/_authenticated/departamentos/$departmentId': {
+      id: '/_authenticated/departamentos/$departmentId'
+      path: '/$departmentId'
+      fullPath: '/departamentos/$departmentId'
+      preLoaderRoute: typeof AuthenticatedDepartamentosDepartmentIdRouteImport
+      parentRoute: typeof AuthenticatedDepartamentosRoute
+    }
     '/_authenticated/portfolios/': {
       id: '/_authenticated/portfolios/'
       path: '/'
@@ -358,6 +416,23 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AuthenticatedDepartamentosRouteChildren {
+  AuthenticatedDepartamentosDepartmentIdRoute: typeof AuthenticatedDepartamentosDepartmentIdRoute
+  AuthenticatedDepartamentosIndexRoute: typeof AuthenticatedDepartamentosIndexRoute
+}
+
+const AuthenticatedDepartamentosRouteChildren: AuthenticatedDepartamentosRouteChildren =
+  {
+    AuthenticatedDepartamentosDepartmentIdRoute:
+      AuthenticatedDepartamentosDepartmentIdRoute,
+    AuthenticatedDepartamentosIndexRoute: AuthenticatedDepartamentosIndexRoute,
+  }
+
+const AuthenticatedDepartamentosRouteWithChildren =
+  AuthenticatedDepartamentosRoute._addFileChildren(
+    AuthenticatedDepartamentosRouteChildren,
+  )
 
 interface AuthenticatedPortfoliosRouteChildren {
   AuthenticatedPortfoliosPortfolioIdRoute: typeof AuthenticatedPortfoliosPortfolioIdRoute
@@ -395,6 +470,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCaixaDeEntradaRoute: typeof AuthenticatedCaixaDeEntradaRoute
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDepartamentosRoute: typeof AuthenticatedDepartamentosRouteWithChildren
   AuthenticatedMinhasTarefasRoute: typeof AuthenticatedMinhasTarefasRoute
   AuthenticatedPessoasRoute: typeof AuthenticatedPessoasRoute
   AuthenticatedPortfoliosRoute: typeof AuthenticatedPortfoliosRouteWithChildren
@@ -408,6 +484,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCaixaDeEntradaRoute: AuthenticatedCaixaDeEntradaRoute,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDepartamentosRoute: AuthenticatedDepartamentosRouteWithChildren,
   AuthenticatedMinhasTarefasRoute: AuthenticatedMinhasTarefasRoute,
   AuthenticatedPessoasRoute: AuthenticatedPessoasRoute,
   AuthenticatedPortfoliosRoute: AuthenticatedPortfoliosRouteWithChildren,

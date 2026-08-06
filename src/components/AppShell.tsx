@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
+  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronsLeft,
@@ -37,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  departmentsQuery,
   deleteProject,
   duplicateProject,
   projectsQuery,
@@ -68,6 +70,7 @@ type StaticRoute =
   | "/pessoas"
   | "/projetos"
   | "/portfolios"
+  | "/departamentos"
   | "/configuracoes";
 
 const MAIN_NAV = [
@@ -305,6 +308,7 @@ function SidebarContent({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const projects = useQuery(projectsQuery).data ?? [];
   const portfolios = useQuery(portfoliosQuery).data ?? [];
+  const departments = useQuery(departmentsQuery).data ?? [];
   const notifications = useQuery(notificationsQuery).data ?? [];
   const { member } = useCurrentMember();
   const { canViewReports, canCreateProject, canManageTeam } = useAccessRole();
@@ -313,7 +317,12 @@ function SidebarContent({
     ? notifications.filter((n) => n.member_id === member.id && !n.read_at && !n.archived_at).length
     : 0;
 
-  const [open, setOpen] = useState({ insights: true, projects: true, portfolios: false });
+  const [open, setOpen] = useState({
+    insights: true,
+    projects: true,
+    portfolios: false,
+    departments: false,
+  });
   const insightsNav = canViewReports ? INSIGHTS_NAV : [];
 
   return (
@@ -443,6 +452,42 @@ function SidebarContent({
                   <span className="truncate">{p.name}</span>
                 </Link>
               ))}
+              <Link
+                to="/portfolios"
+                className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              >
+                <FolderKanban className="size-3.5" /> Ver todos
+              </Link>
+            </Group>
+
+            <Group
+              label="Departamentos"
+              open={open.departments}
+              onToggle={() => setOpen((o) => ({ ...o, departments: !o.departments }))}
+            >
+              {departments.length === 0 && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum departamento ainda</p>
+              )}
+              {departments.map((d) => (
+                <Link
+                  key={d.id}
+                  to="/departamentos/$departmentId"
+                  params={{ departmentId: d.id }}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+                    pathname === `/departamentos/${d.id}` && "bg-sidebar-accent font-medium",
+                  )}
+                >
+                  <span className={cn("size-2.5 shrink-0 rounded-full", dotClass(d.color))} />
+                  <span className="truncate">{d.name}</span>
+                </Link>
+              ))}
+              <Link
+                to="/departamentos"
+                className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              >
+                <Building2 className="size-3.5" /> Ver todos
+              </Link>
             </Group>
           </>
         )}

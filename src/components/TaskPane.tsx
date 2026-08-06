@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
-import { createTask, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
+import { createTask, departmentsQuery, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
 import {
   FIELD_TYPE_LABEL,
   addDependency,
@@ -101,6 +101,7 @@ export function TaskPane({
 }: Props) {
   const qc = useQueryClient();
   const events = useQuery(statusEventsQuery).data ?? [];
+  const departments = useQuery(departmentsQuery).data ?? [];
 
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -397,6 +398,21 @@ export function TaskPane({
                   ))}
                 </select>
               </div>
+
+              <FieldLabel>Departamento</FieldLabel>
+              <select
+                aria-label="Departamento"
+                className={ctl}
+                value={task.department_id ?? ""}
+                onChange={(e) => patch.mutate({ department_id: e.target.value || null })}
+              >
+                <option value="">Sem departamento</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
 
               <FieldLabel>Prazo</FieldLabel>
               <div className="flex items-center gap-2">

@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Field, Modal } from "@/components/ui-bits";
-import { createProject, membersQuery, projectsQuery } from "@/lib/data";
+import { createProject, departmentsQuery, membersQuery, projectsQuery } from "@/lib/data";
 import { createSection, createTaskLinked, portfoliosQuery, sectionsQuery } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { COLOR_KEYS, dotClass } from "@/lib/colors";
@@ -13,15 +13,30 @@ import { cn } from "@/lib/utils";
 /** Seções criadas junto com um projeto novo, como no Asana. */
 const DEFAULT_SECTIONS = ["A fazer", "Em andamento", "Concluído"];
 
-export function NewTaskDialog({ onClose, projectId }: { onClose: () => void; projectId?: string }) {
+/**
+ * Diálogo de nova tarefa. Aceita contexto opcional (projeto OU departamento)
+ * para pré-preencher — por exemplo, o botão "Nova tarefa" dentro da página de
+ * um departamento já vem com o departamento selecionado.
+ */
+export function NewTaskDialog({
+  onClose,
+  projectId,
+  departmentId,
+}: {
+  onClose: () => void;
+  projectId?: string;
+  departmentId?: string;
+}) {
   const qc = useQueryClient();
   const { member } = useCurrentMember();
   const projects = useQuery(projectsQuery).data ?? [];
   const sections = useQuery(sectionsQuery).data ?? [];
   const members = useQuery(membersQuery).data ?? [];
+  const departments = useQuery(departmentsQuery).data ?? [];
   const [form, setForm] = useState({
     title: "",
     project_id: projectId ?? "",
+    department_id: departmentId ?? "",
     assignee_id: member?.id ?? "",
     due_date: "",
     priority: "media",
@@ -29,13 +44,20 @@ export function NewTaskDialog({ onClose, projectId }: { onClose: () => void; pro
 
   const save = useMutation({
     mutationFn: async () => {
-      const sectionId = form.project_id
-        ? (sections.find((s) => s.project_id === form.project_id)?.id ?? null)
-        : null;
+      // A tarefa cai na primeira seção do container escolhido — projeto tem
+      // prioridade (é o vínculo forte, com task_projects), departamento é
+      // usado só quando não há projeto (seção pertence direto ao departamento).
+      const containerSections = form.project_id
+        ? sections.filter((s) => s.project_id === form.project_id)
+        : form.department_id
+          ? sections.filter((s) => s.department_id === form.department_id)
+          : [];
+      const sectionId = containerSections[0]?.id ?? null;
       await createTaskLinked(
         {
           title: form.title.trim(),
           project_id: form.project_id || null,
+          department_id: form.department_id || null,
           section_id: sectionId,
           assignee_id: form.assignee_id || null,
           due_date: form.due_date || null,
@@ -91,6 +113,20 @@ export function NewTaskDialog({ onClose, projectId }: { onClose: () => void; pro
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Departamento">
+          <select
+            className="field w-full"
+            value={form.department_id}
+            onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+          >
+            <option value="">Sem departamento</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
               </option>
             ))}
           </select>
