@@ -1895,17 +1895,14 @@ export function BoardView({
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations);
-  const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
-    reorderTasks: (input) => {
-      // Arrastar um card marca o projeto em "ordem manual", igual à Lista —
-      // do contrário o próximo render voltaria a colocar a mais recente em
-      // cima e o esforço do arraste sumiria.
-      if (!manualOrder) setManualOrder(true);
-      reorderTasks.mutate(input);
-    },
+    // No Quadro a ordem dentro da coluna é fixa por data de criação (mais
+    // nova em cima). Arrastar entre colunas ainda move a tarefa; arrastar
+    // dentro da mesma coluna atualiza position mas o sort ignora — de
+    // propósito, para que uma tarefa recém-criada nunca fique embaixo.
+    reorderTasks: (input) => reorderTasks.mutate(input),
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
@@ -1929,36 +1926,18 @@ export function BoardView({
 
   return (
     <div className="space-y-3">
-      {manualOrder && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Ordenação manual (definida pelo arraste).</span>
-          <button
-            type="button"
-            onClick={() => setManualOrder(false)}
-            className="btn btn-ghost px-2 py-0.5 text-xs"
-          >
-            Voltar para ordem de criação
-          </button>
-        </div>
-      )}
       <div className="flex gap-3 overflow-x-auto pb-4">
       {boardSections.map((section) => {
         const list = tasks
           .filter((t) => sectionOf(t) === section.id && !t.parent_task_id)
           .slice()
-          .sort((a, b) =>
-            manualOrder
-              ? (a.position ?? 0) - (b.position ?? 0)
-              : // padrão: mais recente em cima (o oposto da Lista, que é por
-                // criação crescente); no Quadro a expectativa é ver a última
-                // tarefa criada aparecer no topo da coluna.
-                b.created_at.localeCompare(a.created_at),
-          );
+          // Ordem fixa: mais recente em cima. O produto pediu que "toda
+          // tarefa nova entre no topo" — a forma mais robusta de garantir
+          // isso é ignorar position dentro da coluna. Sem esse fallback
+          // duas criações rápidas empatavam em position e o desempate por
+          // created_at ASC jogava a mais nova para baixo.
+          .sort((a, b) => b.created_at.localeCompare(a.created_at));
         const listIds = list.map((t) => t.id);
-        // Posição para uma tarefa nova: menor que o mínimo atual, para que
-        // ela apareça no topo mesmo em "ordem manual". Sem tarefas, começa
-        // em 0 e vai descendo (−1, −2, …) a cada nova criação.
-        const topPosition = list.length ? Math.min(...list.map((t) => t.position ?? 0)) - 1 : 0;
         return (
           <div
             key={section.id || "none"}
@@ -1979,9 +1958,7 @@ export function BoardView({
             <SectionContextMenu
               section={section}
               onRename={section.id ? () => setRenamingSectionId(section.id) : undefined}
-              onAddTask={() =>
-                addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null, position: topPosition })
-              }
+              onAddTask={() => addTask.mutate({ title: "Nova tarefa", sectionId: section.id || null })}
               onDuplicate={section.id ? () => dupSection.mutate(section.id) : undefined}
               onRemove={section.id ? () => removeSection.mutate(section.id) : undefined}
             >
@@ -2093,7 +2070,7 @@ export function BoardView({
 
             <AddTaskRow
               className="mt-1 rounded-md"
-              onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null, position: topPosition })}
+              onAdd={(title) => addTask.mutate({ title, sectionId: section.id || null })}
             />
           </div>
         );
