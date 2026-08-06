@@ -1883,10 +1883,17 @@ export function BoardView({
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations);
+  const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
-    reorderTasks: (input) => reorderTasks.mutate(input),
+    reorderTasks: (input) => {
+      // Arrastar um card marca o projeto em "ordem manual", igual à Lista —
+      // do contrário o próximo render voltaria a colocar a mais recente em
+      // cima e o esforço do arraste sumiria.
+      if (!manualOrder) setManualOrder(true);
+      reorderTasks.mutate(input);
+    },
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
@@ -1909,12 +1916,32 @@ export function BoardView({
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4">
+    <div className="space-y-3">
+      {manualOrder && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Ordenação manual (definida pelo arraste).</span>
+          <button
+            type="button"
+            onClick={() => setManualOrder(false)}
+            className="btn btn-ghost px-2 py-0.5 text-xs"
+          >
+            Voltar para ordem de criação
+          </button>
+        </div>
+      )}
+      <div className="flex gap-3 overflow-x-auto pb-4">
       {boardSections.map((section) => {
         const list = tasks
           .filter((t) => sectionOf(t) === section.id && !t.parent_task_id)
           .slice()
-          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+          .sort((a, b) =>
+            manualOrder
+              ? (a.position ?? 0) - (b.position ?? 0)
+              : // padrão: mais recente em cima (o oposto da Lista, que é por
+                // criação crescente); no Quadro a expectativa é ver a última
+                // tarefa criada aparecer no topo da coluna.
+                b.created_at.localeCompare(a.created_at),
+          );
         const listIds = list.map((t) => t.id);
         return (
           <div
@@ -2056,6 +2083,7 @@ export function BoardView({
 
       <div className="w-56 shrink-0 pt-1">
         <AddInline placeholder="Adicionar seção" onAdd={(name) => addSection.mutate(name)} />
+      </div>
       </div>
     </div>
   );
