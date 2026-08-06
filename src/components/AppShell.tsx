@@ -28,7 +28,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Avatar } from "@/components/Avatar";
-import { NewProjectDialog, NewTaskDialog } from "@/components/dialogs";
+import {
+  NewDepartmentDialog,
+  NewPortfolioDialog,
+  NewProjectDialog,
+  NewTaskDialog,
+} from "@/components/dialogs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,7 +113,7 @@ function useTheme() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [creating, setCreating] = useState<"task" | "project" | null>(null);
+  const [creating, setCreating] = useState<"task" | "project" | "portfolio" | "department" | null>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => setMobileOpen(false), [pathname]);
@@ -125,6 +130,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           collapsed={collapsed}
           onToggleCollapse={() => setCollapsed((c) => !c)}
           onCreateProject={() => setCreating("project")}
+          onCreatePortfolio={() => setCreating("portfolio")}
+          onCreateDepartment={() => setCreating("department")}
         />
       </aside>
 
@@ -138,6 +145,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onCreateProject={() => {
                 setMobileOpen(false);
                 setCreating("project");
+              }}
+              onCreatePortfolio={() => {
+                setMobileOpen(false);
+                setCreating("portfolio");
+              }}
+              onCreateDepartment={() => {
+                setMobileOpen(false);
+                setCreating("department");
               }}
             />
           </aside>
@@ -153,6 +168,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {creating === "task" && <NewTaskDialog onClose={() => setCreating(null)} />}
       {creating === "project" && <NewProjectDialog onClose={() => setCreating(null)} />}
+      {creating === "portfolio" && <NewPortfolioDialog onClose={() => setCreating(null)} />}
+      {creating === "department" && <NewDepartmentDialog onClose={() => setCreating(null)} />}
     </div>
   );
 }
@@ -299,11 +316,15 @@ function SidebarContent({
   onToggleCollapse,
   onClose,
   onCreateProject,
+  onCreatePortfolio,
+  onCreateDepartment,
 }: {
   collapsed: boolean;
   onToggleCollapse?: () => void;
   onClose?: () => void;
   onCreateProject: () => void;
+  onCreatePortfolio: () => void;
+  onCreateDepartment: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const projects = useQuery(projectsQuery).data ?? [];
@@ -434,6 +455,16 @@ function SidebarContent({
               label="Portfólios"
               open={open.portfolios}
               onToggle={() => setOpen((o) => ({ ...o, portfolios: !o.portfolios }))}
+              action={
+                <button
+                  onClick={onCreatePortfolio}
+                  aria-label="Novo portfólio"
+                  title="Novo portfólio"
+                  className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              }
             >
               {portfolios.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum portfólio ainda</p>
@@ -464,6 +495,16 @@ function SidebarContent({
               label="Departamentos"
               open={open.departments}
               onToggle={() => setOpen((o) => ({ ...o, departments: !o.departments }))}
+              action={
+                <button
+                  onClick={onCreateDepartment}
+                  aria-label="Novo departamento"
+                  title="Novo departamento"
+                  className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              }
             >
               {departments.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum departamento ainda</p>

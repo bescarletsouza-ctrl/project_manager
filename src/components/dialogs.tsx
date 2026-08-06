@@ -3,8 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Field, Modal } from "@/components/ui-bits";
-import { createProject, departmentsQuery, membersQuery, projectsQuery } from "@/lib/data";
-import { createSection, createTaskLinked, portfoliosQuery, sectionsQuery } from "@/lib/asana";
+import {
+  createDepartment,
+  createProject,
+  departmentsQuery,
+  membersQuery,
+  projectsQuery,
+} from "@/lib/data";
+import { createPortfolio, createSection, createTaskLinked, portfoliosQuery, sectionsQuery } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { COLOR_KEYS, dotClass } from "@/lib/colors";
 import { PRIORITIES, PRIORITY_LABEL, PROJECT_STATUS, PROJECT_STATUS_LABEL } from "@/lib/domain";
@@ -308,6 +314,174 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
           />
         </Field>
       </div>
+    </Modal>
+  );
+}
+
+/**
+ * Diálogo simples de novo portfólio. A página /portfolios continua tendo o
+ * form inline (para edição em lote); esse aqui é o atalho da sidebar/topbar
+ * para não precisar navegar toda vez.
+ */
+export function NewPortfolioDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const members = useQuery(membersQuery).data ?? [];
+  const [form, setForm] = useState({ name: "", description: "", owner_id: "", color: "blue" });
+
+  const save = useMutation({
+    mutationFn: () =>
+      createPortfolio({
+        name: form.name.trim(),
+        description: form.description || null,
+        owner_id: form.owner_id || null,
+        color: form.color,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Portfólio criado.");
+      onClose();
+      navigate({ to: "/portfolios" });
+    },
+    onError: (e: unknown) => toast.error(`Não foi possível criar: ${(e as Error)?.message ?? "erro"}`),
+  });
+
+  const canSave = form.name.trim().length >= 2 && !save.isPending;
+
+  return (
+    <Modal
+      title="Novo portfólio"
+      description="Agrupe projetos por frente da operação."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="btn btn-ghost">
+            Cancelar
+          </button>
+          <button onClick={() => canSave && save.mutate()} disabled={!canSave} className="btn btn-primary">
+            {save.isPending ? "Criando…" : "Criar portfólio"}
+          </button>
+        </>
+      }
+    >
+      <input
+        autoFocus
+        placeholder="Nome do portfólio"
+        maxLength={80}
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        onKeyDown={(e) => e.key === "Enter" && canSave && save.mutate()}
+        className="field w-full text-[15px]"
+      />
+      <textarea
+        placeholder="Descrição (opcional)"
+        maxLength={280}
+        value={form.description}
+        onChange={(e) => setForm({ ...form, description: e.target.value })}
+        className="field h-20 w-full"
+      />
+      <Field label="Cor">
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {COLOR_KEYS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={c}
+              onClick={() => setForm({ ...form, color: c })}
+              className={cn(
+                "size-6 rounded-md ring-offset-2 ring-offset-background transition",
+                dotClass(c),
+                form.color === c && "ring-2 ring-foreground/40",
+              )}
+            />
+          ))}
+        </div>
+      </Field>
+      <Field label="Responsável">
+        <select
+          className="field w-full"
+          value={form.owner_id}
+          onChange={(e) => setForm({ ...form, owner_id: e.target.value })}
+        >
+          <option value="">Sem responsável</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </Modal>
+  );
+}
+
+/**
+ * Diálogo simples de novo departamento. Atalho da sidebar/topbar — evita
+ * mandar o usuário para /departamentos toda vez que precisa criar um. A
+ * criação já existia também em Configurações → Departamentos (só admin);
+ * este atalho não tem essa restrição.
+ */
+export function NewDepartmentDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ name: "", color: "blue" });
+
+  const save = useMutation({
+    mutationFn: () =>
+      createDepartment({ name: form.name.trim(), color: form.color }),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Departamento criado.");
+      onClose();
+      navigate({ to: "/departamentos" });
+    },
+    onError: (e: unknown) => toast.error(`Não foi possível criar: ${(e as Error)?.message ?? "erro"}`),
+  });
+
+  const canSave = form.name.trim().length >= 2 && !save.isPending;
+
+  return (
+    <Modal
+      title="Novo departamento"
+      description="Ex.: Marketing, Financeiro, Operações."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="btn btn-ghost">
+            Cancelar
+          </button>
+          <button onClick={() => canSave && save.mutate()} disabled={!canSave} className="btn btn-primary">
+            {save.isPending ? "Criando…" : "Criar departamento"}
+          </button>
+        </>
+      }
+    >
+      <input
+        autoFocus
+        placeholder="Nome do departamento"
+        maxLength={80}
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        onKeyDown={(e) => e.key === "Enter" && canSave && save.mutate()}
+        className="field w-full text-[15px]"
+      />
+      <Field label="Cor">
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {COLOR_KEYS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={c}
+              onClick={() => setForm({ ...form, color: c })}
+              className={cn(
+                "size-6 rounded-md ring-offset-2 ring-offset-background transition",
+                dotClass(c),
+                form.color === c && "ring-2 ring-foreground/40",
+              )}
+            />
+          ))}
+        </div>
+      </Field>
     </Modal>
   );
 }
