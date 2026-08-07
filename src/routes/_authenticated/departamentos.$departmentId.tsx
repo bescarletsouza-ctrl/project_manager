@@ -960,48 +960,56 @@ function TaskCard({
             </Pill>
           )}
           {columnPrefs.prazo && (
-            <InlineText
-              label="Prazo"
-              type="date"
-              value={task.due_date ?? ""}
-              onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
-              className={cn("w-[118px] text-xs", isLate(task) && "text-destructive")}
-            />
+            <span className="w-24 shrink-0">
+              <InlineText
+                label="Prazo"
+                type="date"
+                value={task.due_date ?? ""}
+                onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
+                className={cn("text-xs", isLate(task) && "text-destructive")}
+              />
+            </span>
           )}
           {columnPrefs.prioridade && (
-            <InlineSelect
-              label="Prioridade"
-              value={task.priority}
-              onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
-              options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
-              className="text-xs"
-            />
+            <span className="w-20 shrink-0">
+              <InlineSelect
+                label="Prioridade"
+                value={task.priority}
+                onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
+                options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.status && <StatusBadge status={task.status} />}
           {columnPrefs.sprint && (
-            <InlineText
-              label="Sprint"
-              value={task.sprint ?? ""}
-              placeholder="sprint"
-              onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
-              className="w-20 text-xs"
-            />
+            <span className="w-20 shrink-0">
+              <InlineText
+                label="Sprint"
+                value={task.sprint ?? ""}
+                placeholder="sprint"
+                onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.etiquetas && (
-            <InlineText
-              label="Etiquetas"
-              value={(task.tags ?? []).join(", ")}
-              placeholder="etiquetas"
-              onCommit={(v) =>
-                fieldPatch.mutate({
-                  tags: v
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                })
-              }
-              className="w-28 text-xs"
-            />
+            <span className="w-24 shrink-0">
+              <InlineText
+                label="Etiquetas"
+                value={(task.tags ?? []).join(", ")}
+                placeholder="etiquetas"
+                onCommit={(v) =>
+                  fieldPatch.mutate({
+                    tags: v
+                      .split(",")
+                      .map((t) => t.trim())
+                      .filter(Boolean),
+                  })
+                }
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.responsavel && (
             <span className="ml-auto">
@@ -1529,48 +1537,56 @@ function TaskRow({
             </Pill>
           )}
           {columnPrefs.prioridade && (
-            <InlineSelect
-              label="Prioridade"
-              value={task.priority}
-              onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
-              options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
-              className="text-xs"
-            />
+            <span className="w-24 shrink-0">
+              <InlineSelect
+                label="Prioridade"
+                value={task.priority}
+                onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
+                options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.status && <StatusBadge status={task.status} />}
           {columnPrefs.sprint && (
-            <InlineText
-              label="Sprint"
-              value={task.sprint ?? ""}
-              placeholder="sprint"
-              onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
-              className="w-20 text-xs"
-            />
+            <span className="w-24 shrink-0">
+              <InlineText
+                label="Sprint"
+                value={task.sprint ?? ""}
+                placeholder="sprint"
+                onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.etiquetas && (
-            <InlineText
-              label="Etiquetas"
-              value={(task.tags ?? []).join(", ")}
-              placeholder="etiquetas"
-              onCommit={(v) =>
-                fieldPatch.mutate({
-                  tags: v
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                })
-              }
-              className="w-28 text-xs"
-            />
+            <span className="w-32 shrink-0">
+              <InlineText
+                label="Etiquetas"
+                value={(task.tags ?? []).join(", ")}
+                placeholder="etiquetas"
+                onCommit={(v) =>
+                  fieldPatch.mutate({
+                    tags: v
+                      .split(",")
+                      .map((t) => t.trim())
+                      .filter(Boolean),
+                  })
+                }
+                className="text-xs"
+              />
+            </span>
           )}
           {columnPrefs.prazo && (
-            <InlineText
-              label="Prazo"
-              type="date"
-              value={task.due_date ?? ""}
-              onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
-              className={cn("w-[118px] text-right text-xs", isLate(task) && "text-destructive")}
-            />
+            <span className="w-[116px] shrink-0">
+              <InlineText
+                label="Prazo"
+                type="date"
+                value={task.due_date ?? ""}
+                onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
+                className={cn("text-right text-xs", isLate(task) && "text-destructive")}
+              />
+            </span>
           )}
           {columnPrefs.responsavel && (
             <AssigneePicker
