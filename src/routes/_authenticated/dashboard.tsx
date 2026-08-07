@@ -19,6 +19,7 @@ import {
 import { TasksByPersonChart } from "@/components/dashboard/TasksByPersonChart";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
 import { PeriodComparePanel } from "@/components/dashboard/PeriodComparePanel";
+import { SectionsChart } from "@/components/dashboard/SectionsChart";
 import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
 import { useWorkspaceData, nameById } from "@/lib/useData";
@@ -93,7 +94,6 @@ function Dashboard() {
   const [dateTo, setDateTo] = useState(todayIso());
   const [activePreset, setActivePreset] = useState("30");
   const [selection, setSelection] = useState<Selection>(null);
-  const [deptForSections, setDeptForSections] = useState("");
 
   const filtered = useMemo(() => filterByDate(tasks, dateFrom, dateTo), [tasks, dateFrom, dateTo]);
 
@@ -118,19 +118,6 @@ function Dashboard() {
     name: d.name,
     abertas: filtered.filter((t) => t.department_id === d.id && isOpen(t)).length,
     concluidas: filtered.filter((t) => t.department_id === d.id && isDone(t)).length,
-  }));
-
-  const activeDept = deptForSections || departments[0]?.id || "";
-  const sectionOptions = activeDept
-    ? sections
-        .filter((s) => s.department_id === activeDept)
-        .slice()
-        .sort((a, b) => a.position - b.position)
-    : [];
-  const bySection = sectionOptions.map((s) => ({
-    id: s.id,
-    name: s.name,
-    total: filtered.filter((t) => t.section_id === s.id).length,
   }));
 
   const evolution = buildEvolution(done);
@@ -327,56 +314,25 @@ function Dashboard() {
         </div>
       </div>
 
-      <div className="card-surface p-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionTitle title="Tarefas por seção" description="Etapas do departamento — clique numa barra para ver as tarefas" />
-          <select
-            value={activeDept}
-            onChange={(e) => setDeptForSections(e.target.value)}
-            className="rounded-md border border-input bg-background px-2 py-1 text-xs"
-          >
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-4 h-64">
-          {bySection.length === 0 ? (
-            <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {departments.length === 0 ? "Nenhum departamento cadastrado." : "Nenhuma seção neste departamento."}
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={bySection}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="name" fontSize={11} stroke="var(--muted-foreground)" />
-                <YAxis fontSize={11} allowDecimals={false} stroke="var(--muted-foreground)" />
-                <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <RBar
-                  dataKey="total"
-                  name="Tarefas"
-                  radius={[4, 4, 0, 0]}
-                  className="cursor-pointer"
-                  onClick={(d: unknown) => {
-                    const row = d as { payload?: { id: string; name: string } };
-                    if (row.payload) {
-                      openSelection(
-                        `Seção — ${row.payload.name}`,
-                        filtered.filter((t) => t.section_id === row.payload!.id),
-                      );
-                    }
-                  }}
-                >
-                  {bySection.map((_, i) => (
-                    <Cell key={i} fill={chartColors[i % chartColors.length]} />
-                  ))}
-                </RBar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionsChart
+          title="Tarefas por seção — departamento"
+          containerLabel="Departamento"
+          containers={departments}
+          containerKey="department_id"
+          sections={sections}
+          tasks={filtered}
+          onSelect={openSelection}
+        />
+        <SectionsChart
+          title="Tarefas por seção — projeto"
+          containerLabel="Projeto"
+          containers={projects}
+          containerKey="project_id"
+          sections={sections}
+          tasks={filtered}
+          onSelect={openSelection}
+        />
       </div>
 
       <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
