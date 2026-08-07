@@ -2263,7 +2263,7 @@ export function BoardView({
               />
             </SectionContextMenu>
 
-            <div className="mt-1 flex flex-col gap-2">
+            <div className="mt-1 flex max-h-[65vh] flex-col gap-1.5 overflow-y-auto">
               {list.map((t) => {
                 const subs = tasks.filter((s) => s.parent_task_id === t.id);
                 const assignee = memberOf(t.assignee_id);
@@ -2304,7 +2304,7 @@ export function BoardView({
                           onOpenTask(t);
                         }
                       }}
-                      className="w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
+                      className="w-full cursor-grab space-y-1.5 rounded-lg border border-border bg-card p-2 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
                     >
                       {columns.includes("tags") && (
                         <div onClick={(e) => e.stopPropagation()} className="-mx-1 -mt-0.5">

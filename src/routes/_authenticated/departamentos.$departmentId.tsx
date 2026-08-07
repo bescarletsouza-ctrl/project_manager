@@ -630,7 +630,7 @@ function DepartmentDetail() {
                   }
                 />
 
-                <div className="mt-1 flex flex-col gap-2">
+                <div className="mt-1 flex max-h-[65vh] flex-col gap-1.5 overflow-y-auto">
                   {list.map((t) => (
                     <TaskCard
                       key={t.id}
@@ -896,7 +896,7 @@ function TaskCard({
           }
         }}
         className={cn(
-          "w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing",
+          "w-full cursor-grab space-y-1.5 rounded-lg border border-border bg-card p-2 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing",
           dragging && "opacity-50",
         )}
       >

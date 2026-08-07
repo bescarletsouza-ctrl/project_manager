@@ -141,7 +141,7 @@ function TasksPage() {
                   <StatusBadge status={status} />
                   <span className="text-xs text-muted-foreground">{column.length}</span>
                 </div>
-                <div className="space-y-2">
+                <div className="max-h-[65vh] space-y-1.5 overflow-y-auto">
                   {column.map((t) => (
                     <div
                       key={t.id}
