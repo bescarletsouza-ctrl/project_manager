@@ -124,7 +124,7 @@ function TasksPage() {
       {filtered.length === 0 ? (
         <EmptyState title="Nenhuma tarefa encontrada" description="Ajuste os filtros ou crie uma nova tarefa." />
       ) : view === "kanban" ? (
-        <div className="flex gap-3 overflow-x-auto pb-4">
+        <div className="flex items-start gap-3 overflow-x-auto pb-4">
           {STATUS_ORDER.map((status) => {
             const column = filtered.filter((t) => t.status === status);
             return (

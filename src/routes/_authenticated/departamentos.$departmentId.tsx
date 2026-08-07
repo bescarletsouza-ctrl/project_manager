@@ -551,7 +551,7 @@ function DepartmentDetail() {
           description="Adicione a primeira para começar a organizar as tarefas."
         />
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-4">
+        <div className="flex items-start gap-3 overflow-x-auto pb-4">
           {boardSections.map((section) => {
             const isVirtual = !section.id;
             // Órfãs entram na 1ª seção real. Quando não há seções, a coluna
