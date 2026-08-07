@@ -33,7 +33,7 @@ import {
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
 import { useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
-import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -218,16 +218,8 @@ function DepartmentDetail() {
         await updateTask(input.taskId, { section_id: input.sectionId });
         return;
       }
-      const container = { projectId: task.project_id, departmentId: task.department_id ?? departmentId };
-      const { patch, applied, moves } = runAutomations(
-        automations,
-        "section_changed",
-        { ...task, section_id: input.sectionId },
-        container,
-      );
+      const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
-      await updateTask(input.taskId, { section_id: input.sectionId, ...patch });
-      await applyAutomationMoves(input.taskId, container, moves);
     },
     onSuccess: () => qc.invalidateQueries(),
     onError: () => toast.error("Não foi possível mover a tarefa."),

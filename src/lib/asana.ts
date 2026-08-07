@@ -375,12 +375,17 @@ export const linkTaskToProject = (task_id: string, project_id: string, section_i
 
 export const unlinkTaskFromProject = (id: string) => run(table("task_projects").delete().eq("id", id));
 
+/**
+ * Upsert (não update): tarefa que chegou ao projeto direto por project_id
+ * (sem passar por createTaskLinked) pode nunca ter tido linha em
+ * task_projects — um update simples nesse caso afeta zero linhas e a seção
+ * some silenciosamente. Upsert garante que a posição sempre grava.
+ */
 export const setTaskProjectSection = (task_id: string, project_id: string, section_id: string | null) =>
   run(
-    table("task_projects")
-      .update({ section_id } as never)
-      .eq("task_id", task_id)
-      .eq("project_id", project_id),
+    table("task_projects").upsert({ task_id, project_id, section_id } as never, {
+      onConflict: "task_id,project_id",
+    }),
   );
 
 /** Cria a tarefa e a vincula a um ou mais projetos (sem duplicar). */

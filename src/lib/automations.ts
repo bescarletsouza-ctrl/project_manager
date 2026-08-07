@@ -1,4 +1,5 @@
-import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation } from "./asana";
+import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation, type Section } from "./asana";
+import { updateTask } from "./data";
 import type { Task } from "./domain";
 
 export type AutoEvent =
@@ -194,4 +195,64 @@ export async function applyAutomationMoves(
     // task_field_values usa upsert, então sobrescrever valor existente é OK.
     await setFieldValue(taskId, fieldId, value || null);
   }
+}
+
+/**
+ * Move a tarefa para uma seção (de projeto OU de departamento — id único,
+ * a origem é resolvida por lookup em allSections) e ESPELHA por nome no
+ * outro container quando a tarefa pertence aos dois.
+ *
+ * Por quê: task.section_id é o campo "nativo" da tarefa (usado como posição
+ * no departamento), enquanto a posição no projeto vive em task_projects
+ * (independente, para suportar tarefa em vários projetos). Gravar direto em
+ * task.section_id a partir de uma ação feita no projeto vazava a seção do
+ * departamento (e vice-versa) — as duas visões brigavam pelo mesmo campo.
+ * Escrever cada lado no lugar certo resolve isso; espelhar por nome atende
+ * o pedido de "mover no departamento reflete no projeto" sem inventar um
+ * mapeamento novo (usa o nome da seção como chave, ex.: "Em andamento").
+ * Sem seção com nome igual do outro lado, a tarefa fica sem seção lá — não
+ * fica presa na seção antiga por engano.
+ */
+export async function moveTaskSection(
+  task: Task,
+  targetSectionId: string | null,
+  allSections: Section[],
+  automations: Automation[],
+): Promise<{ applied: string[] }> {
+  const target = targetSectionId ? allSections.find((s) => s.id === targetSectionId) : null;
+  const isProjectTarget = target?.project_id != null;
+  const isDeptTarget = target?.department_id != null;
+
+  const container = { projectId: task.project_id, departmentId: task.department_id };
+  const { patch, applied, moves } = runAutomations(
+    automations,
+    "section_changed",
+    { ...task, section_id: targetSectionId },
+    container,
+  );
+
+  if (isProjectTarget && task.project_id) {
+    await setTaskProjectSection(task.id, task.project_id, targetSectionId);
+    // Tarefa sem departamento: task.section_id não serve a mais ninguém, então
+    // espelhar aqui também mantém a coluna "Seção" da grade e o TaskPane
+    // mostrando o valor certo sem depender do vínculo task_projects.
+    if (!task.department_id) await updateTask(task.id, { section_id: targetSectionId });
+  } else {
+    await updateTask(task.id, { section_id: targetSectionId });
+  }
+  if (Object.keys(patch).length > 0) await updateTask(task.id, patch);
+  await applyAutomationMoves(task.id, container, moves);
+
+  if (task.project_id && task.department_id && target) {
+    const sameName = (s: Section) => s.name.trim().toLowerCase() === target.name.trim().toLowerCase();
+    if (isDeptTarget) {
+      const mirror = allSections.find((s) => s.project_id === task.project_id && sameName(s));
+      await setTaskProjectSection(task.id, task.project_id, mirror?.id ?? null);
+    } else if (isProjectTarget) {
+      const mirror = allSections.find((s) => s.department_id === task.department_id && sameName(s));
+      await updateTask(task.id, { section_id: mirror?.id ?? null });
+    }
+  }
+
+  return { applied };
 }

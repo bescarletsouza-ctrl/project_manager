@@ -48,7 +48,7 @@ import {
   type Section,
   type TaskFieldValue,
 } from "@/lib/asana";
-import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -139,6 +139,7 @@ export function useSectionMutations(
   project: Project,
   automations: Automation[],
   tasks: Task[],
+  allSections: Section[],
 ) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries();
@@ -224,23 +225,14 @@ export function useSectionMutations(
 
   /** Reordena tarefas dentro de uma seção (e move entre seções quando preciso). */
   const reorderTasks = useMutation({
-    mutationFn: async (input: { ids: string[]; sectionId: string; movedId?: string }) => {
+    mutationFn: async (input: { ids: string[]; sectionId: string; movedId?: string; sectionChanged?: boolean }) => {
       if (input.movedId) {
         const task = tasks.find((t) => t.id === input.movedId);
-        // Só dispara a automação quando a seção realmente muda — reordenar
-        // dentro da mesma seção não é um "section_changed" de verdade.
-        if (task && task.section_id !== input.sectionId) {
-          const container = { projectId, departmentId: task.department_id };
-          const { patch, applied, moves } = runAutomations(
-            automations,
-            "section_changed",
-            { ...task, section_id: input.sectionId },
-            container,
-          );
+        // Só dispara automação/espelhamento quando a seção realmente muda —
+        // reordenar dentro da mesma seção não é um "section_changed" de verdade.
+        if (task && input.sectionChanged) {
+          const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
           if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
-          await setTaskProjectSection(input.movedId, projectId, input.sectionId);
-          if (Object.keys(patch).length > 0) await updateTask(input.movedId, patch);
-          await applyAutomationMoves(input.movedId, container, moves);
         } else {
           await setTaskProjectSection(input.movedId, projectId, input.sectionId);
         }
@@ -280,7 +272,7 @@ function useDnd({
 }: {
   sections: Section[];
   reorderSections: (ids: string[]) => void;
-  reorderTasks: (input: { ids: string[]; sectionId: string; movedId?: string }) => void;
+  reorderTasks: (input: { ids: string[]; sectionId: string; movedId?: string; sectionChanged?: boolean }) => void;
 }) {
   const [dragTask, setDragTask] = useState<TaskDrag | null>(null);
   const [dragSection, setDragSection] = useState<string | null>(null);
@@ -294,7 +286,12 @@ function useDnd({
       reorderSections(ids);
     } else if (dragTask) {
       const ids = listIds.filter((id) => id !== dragTask.taskId).concat(dragTask.taskId);
-      reorderTasks({ ids, sectionId: targetId, movedId: dragTask.taskId });
+      reorderTasks({
+        ids,
+        sectionId: targetId,
+        movedId: dragTask.taskId,
+        sectionChanged: dragTask.sectionId !== targetId,
+      });
     }
     setDragTask(null);
     setDragSection(null);
@@ -306,7 +303,12 @@ function useDnd({
     const ids = listIds.filter((id) => id !== dragTask.taskId);
     const at = ids.indexOf(targetTaskId);
     ids.splice(at < 0 ? ids.length : at, 0, dragTask.taskId);
-    reorderTasks({ ids, sectionId, movedId: dragTask.taskId });
+    reorderTasks({
+      ids,
+      sectionId,
+      movedId: dragTask.taskId,
+      sectionChanged: dragTask.sectionId !== sectionId,
+    });
     setDragTask(null);
     setOverSection(null);
   };
@@ -794,23 +796,15 @@ function TaskHeader({
 
 /* ---------- edição inline das colunas (fora da tarefa) ---------- */
 
-function useTaskPatch(task: Task, automations: Automation[] = []) {
+function useTaskPatch(task: Task, automations: Automation[] = [], allSections: Section[] = []) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (patch: Partial<Task>) => {
-      // section_id muda de container/agrupamento — precisa rodar a
-      // automação "quando a seção muda", igual ao toggle de status já faz.
+      // Seção muda de container/agrupamento — precisa gravar no lugar certo
+      // (projeto vs. departamento) e rodar a automação "quando a seção muda".
       if ("section_id" in patch && patch.section_id !== task.section_id) {
-        const container = { projectId: task.project_id, departmentId: task.department_id };
-        const { patch: autoPatch, applied, moves } = runAutomations(
-          automations,
-          "section_changed",
-          { ...task, section_id: patch.section_id ?? null },
-          container,
-        );
+        const { applied } = await moveTaskSection(task, patch.section_id ?? null, allSections, automations);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
-        await updateTask(task.id, { ...patch, ...autoPatch });
-        await applyAutomationMoves(task.id, container, moves);
         return;
       }
       await updateTask(task.id, patch);
@@ -1049,7 +1043,7 @@ function TaskCells({
   automations: Automation[];
   cols: ColumnWidths;
 }) {
-  const patch = useTaskPatch(task, automations);
+  const patch = useTaskPatch(task, automations, allSections);
   const has = (id: string) => columns.includes(id);
   /** Mesma mescla do TaskPane: seções do projeto E do departamento da tarefa. */
   const taskSections = allSections.filter(
@@ -1410,6 +1404,7 @@ function TaskContextMenu({
   task,
   members,
   sections,
+  allSections,
   automations,
   onOpen,
   children,
@@ -1417,6 +1412,7 @@ function TaskContextMenu({
   task: Task;
   members: Member[];
   sections: Section[];
+  allSections: Section[];
   automations: Automation[];
   onOpen: () => void;
   children: React.ReactNode;
@@ -1426,16 +1422,8 @@ function TaskContextMenu({
   const patch = useMutation({
     mutationFn: async (input: Partial<Task>) => {
       if ("section_id" in input && input.section_id !== task.section_id) {
-        const container = { projectId: task.project_id, departmentId: task.department_id };
-        const { patch: autoPatch, applied, moves } = runAutomations(
-          automations,
-          "section_changed",
-          { ...task, section_id: input.section_id ?? null },
-          container,
-        );
+        const { applied } = await moveTaskSection(task, input.section_id ?? null, allSections, automations);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
-        await updateTask(task.id, { ...input, ...autoPatch });
-        await applyAutomationMoves(task.id, container, moves);
         return;
       }
       await updateTask(task.id, input);
@@ -1696,7 +1684,7 @@ export function ListView({
   onOpenTask,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations, tasks);
+    useSectionMutations(projectId, project, automations, tasks, allSections);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -1917,6 +1905,7 @@ export function ListView({
                           task={t}
                           members={members}
                           sections={sections}
+                          allSections={allSections}
                           automations={automations}
                           onOpen={() => onOpenTask(t)}
                         >
@@ -2010,6 +1999,7 @@ export function ListView({
                               task={s}
                               members={members}
                               sections={sections}
+                              allSections={allSections}
                               automations={automations}
                               onOpen={() => onOpenTask(s)}
                             >
@@ -2076,6 +2066,7 @@ export function BoardView({
   projectId,
   project,
   sections,
+  allSections,
   tasks,
   members,
   automations,
@@ -2083,7 +2074,7 @@ export function BoardView({
   onOpenTask,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations, tasks);
+    useSectionMutations(projectId, project, automations, tasks, allSections);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
@@ -2194,6 +2185,7 @@ export function BoardView({
                       task={t}
                       members={members}
                       sections={sections}
+                      allSections={allSections}
                       automations={automations}
                       onOpen={() => onOpenTask(t)}
                     >
@@ -2387,9 +2379,18 @@ export function TimelineView({
 
 const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
-export function CalendarView({ projectId, project, tasks, members, automations, sections, onOpenTask }: ViewProps) {
+export function CalendarView({
+  projectId,
+  project,
+  tasks,
+  members,
+  automations,
+  sections,
+  allSections,
+  onOpenTask,
+}: ViewProps) {
   const qc = useQueryClient();
-  const { addTask } = useSectionMutations(projectId, project, automations, tasks);
+  const { addTask } = useSectionMutations(projectId, project, automations, tasks, allSections);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
