@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
-import { Avatar } from "@/components/Avatar";
 import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
@@ -35,9 +34,10 @@ import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/li
 import { useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
-import { PRIORITY_LABEL, isLate, type Priority, type Task } from "@/lib/domain";
+import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
+import { AssigneePicker, InlineSelect, InlineText } from "@/components/project/ProjectViews";
 
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
   head: () => ({
@@ -55,19 +55,13 @@ export const Route = createFileRoute("/_authenticated/departamentos/$departmentI
   component: DepartmentDetail,
 });
 
-/** "12 de mar" — mesma abreviação usada nas outras views. */
-function shortDate(date?: string | null) {
-  if (!date) return "—";
-  return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-}
-
 /**
  * Colunas configuráveis: quem controla o que rende no card do Quadro e
  * na linha da Lista. Departamento não tem visible_columns no banco (é
  * preferência de visualização, não de conteúdo), então salvamos em
  * localStorage por departamento, com todas visíveis por padrão.
  */
-const COLUMN_KEYS = ["projeto", "prazo", "prioridade", "status", "sprint", "tipo", "etiquetas", "responsavel"] as const;
+const COLUMN_KEYS = ["projeto", "prazo", "prioridade", "status", "sprint", "etiquetas", "responsavel"] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
 const COLUMN_LABEL: Record<ColumnKey, string> = {
   projeto: "Projeto",
@@ -75,7 +69,6 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   prioridade: "Prioridade",
   status: "Status",
   sprint: "Sprint",
-  tipo: "Tipo",
   etiquetas: "Etiquetas",
   responsavel: "Responsável",
 };
@@ -627,8 +620,7 @@ function DepartmentDetail() {
                     <TaskCard
                       key={t.id}
                       task={t}
-                      assigneeName={members.find((m) => m.id === t.assignee_id)?.name}
-                      assigneeColor={members.find((m) => m.id === t.assignee_id)?.avatar_color}
+                      members={members}
                       projectName={projects.find((p) => p.id === t.project_id)?.name}
                       projectColor={projects.find((p) => p.id === t.project_id)?.color}
                       dragging={dragTaskId === t.id}
@@ -791,8 +783,7 @@ function SectionHeader({
 
 function TaskCard({
   task,
-  assigneeName,
-  assigneeColor,
+  members,
   projectName,
   projectColor,
   dragging,
@@ -804,8 +795,7 @@ function TaskCard({
   columnPrefs,
 }: {
   task: Task;
-  assigneeName: string | undefined;
-  assigneeColor: string | undefined;
+  members: Member[];
   projectName: string | undefined;
   projectColor: string | undefined;
   dragging: boolean;
@@ -823,6 +813,12 @@ function TaskCard({
   departmentId: string;
 }) {
   const qc = useQueryClient();
+  /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto: grava sem passar pelas automações (só status/assignee do toggle rodam automação). */
+  const fieldPatch = useMutation({
+    mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível salvar."),
+  });
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = task.status === "concluido" ? "em_andamento" : "concluido";
@@ -956,24 +952,57 @@ function TaskCard({
               {projectName}
             </Pill>
           )}
-          {columnPrefs.prazo && task.due_date && (
-            <Pill tone={isLate(task) ? "danger" : "neutral"}>{shortDate(task.due_date)}</Pill>
+          {columnPrefs.prazo && (
+            <InlineText
+              label="Prazo"
+              type="date"
+              value={task.due_date ?? ""}
+              onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
+              className={cn("w-[118px] text-xs", isLate(task) && "text-destructive")}
+            />
           )}
           {columnPrefs.prioridade && (
-            <Pill
-              tone={task.priority === "urgente" ? "danger" : task.priority === "alta" ? "warning" : "neutral"}
-            >
-              {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
-            </Pill>
+            <InlineSelect
+              label="Prioridade"
+              value={task.priority}
+              onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
+              options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+              className="text-xs"
+            />
           )}
           {columnPrefs.status && <StatusBadge status={task.status} />}
-          {columnPrefs.sprint && task.sprint && <Pill tone="info">{task.sprint}</Pill>}
-          {columnPrefs.tipo && task.task_type && <Pill>{task.task_type}</Pill>}
-          {columnPrefs.etiquetas &&
-            task.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+          {columnPrefs.sprint && (
+            <InlineText
+              label="Sprint"
+              value={task.sprint ?? ""}
+              placeholder="sprint"
+              onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
+              className="w-20 text-xs"
+            />
+          )}
+          {columnPrefs.etiquetas && (
+            <InlineText
+              label="Etiquetas"
+              value={(task.tags ?? []).join(", ")}
+              placeholder="etiquetas"
+              onCommit={(v) =>
+                fieldPatch.mutate({
+                  tags: v
+                    .split(",")
+                    .map((t) => t.trim())
+                    .filter(Boolean),
+                })
+              }
+              className="w-28 text-xs"
+            />
+          )}
           {columnPrefs.responsavel && (
             <span className="ml-auto">
-              <Avatar name={assigneeName} color={assigneeColor} />
+              <AssigneePicker
+                members={members}
+                value={task.assignee_id}
+                onChange={(id) => fieldPatch.mutate({ assignee_id: id })}
+              />
             </span>
           )}
         </div>
@@ -1147,7 +1176,7 @@ function ListPanel({
   }[];
   deptTasks: Task[];
   orphanTasks: Task[];
-  members: { id: string; name: string; avatar_color: string }[];
+  members: Member[];
   /** Só o suficiente para exibir o pill do projeto de cada tarefa. */
   projects: { id: string; name: string; color: string }[];
   columnPrefs: ColumnPrefs;
@@ -1264,7 +1293,7 @@ function ListPanel({
                   <TaskRow
                     key={t.id}
                     task={t}
-                    assignee={members.find((m) => m.id === t.assignee_id)}
+                    members={members}
                     project={projects.find((p) => p.id === t.project_id)}
                     automations={automations}
                     departmentId={departmentId}
@@ -1342,7 +1371,7 @@ function ListQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
  */
 function TaskRow({
   task,
-  assignee,
+  members,
   project,
   automations,
   departmentId,
@@ -1353,7 +1382,7 @@ function TaskRow({
   columnPrefs,
 }: {
   task: Task;
-  assignee: { name: string; avatar_color: string } | undefined;
+  members: Member[];
   project: { id: string; name: string; color: string } | undefined;
   automations: Automation[];
   departmentId: string;
@@ -1366,6 +1395,13 @@ function TaskRow({
   const qc = useQueryClient();
   const [editingTitle, setEditingTitle] = useState(false);
   const done = task.status === "concluido";
+
+  /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto. */
+  const fieldPatch = useMutation({
+    mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível salvar."),
+  });
 
   const toggle = useMutation({
     mutationFn: async () => {
@@ -1486,30 +1522,55 @@ function TaskRow({
             </Pill>
           )}
           {columnPrefs.prioridade && (
-            <Pill
-              tone={
-                task.priority === "urgente"
-                  ? "danger"
-                  : task.priority === "alta"
-                    ? "warning"
-                    : "neutral"
-              }
-            >
-              {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
-            </Pill>
+            <InlineSelect
+              label="Prioridade"
+              value={task.priority}
+              onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
+              options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+              className="text-xs"
+            />
           )}
           {columnPrefs.status && <StatusBadge status={task.status} />}
-          {columnPrefs.sprint && task.sprint && <Pill tone="info">{task.sprint}</Pill>}
-          {columnPrefs.tipo && task.task_type && <Pill>{task.task_type}</Pill>}
-          {columnPrefs.etiquetas &&
-            task.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+          {columnPrefs.sprint && (
+            <InlineText
+              label="Sprint"
+              value={task.sprint ?? ""}
+              placeholder="sprint"
+              onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
+              className="w-20 text-xs"
+            />
+          )}
+          {columnPrefs.etiquetas && (
+            <InlineText
+              label="Etiquetas"
+              value={(task.tags ?? []).join(", ")}
+              placeholder="etiquetas"
+              onCommit={(v) =>
+                fieldPatch.mutate({
+                  tags: v
+                    .split(",")
+                    .map((t) => t.trim())
+                    .filter(Boolean),
+                })
+              }
+              className="w-28 text-xs"
+            />
+          )}
           {columnPrefs.prazo && (
-            <span className="w-20 shrink-0 truncate text-right text-xs text-muted-foreground">
-              {task.due_date ? shortDate(task.due_date) : "—"}
-            </span>
+            <InlineText
+              label="Prazo"
+              type="date"
+              value={task.due_date ?? ""}
+              onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
+              className={cn("w-[118px] text-right text-xs", isLate(task) && "text-destructive")}
+            />
           )}
           {columnPrefs.responsavel && (
-            <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
+            <AssigneePicker
+              members={members}
+              value={task.assignee_id}
+              onChange={(id) => fieldPatch.mutate({ assignee_id: id })}
+            />
           )}
         </div>
       </ContextMenuTrigger>

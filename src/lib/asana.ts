@@ -129,7 +129,7 @@ export const TASK_COLUMNS = [
   { id: "priority", label: "Prioridade" },
   { id: "tags", label: "Etiquetas" },
   { id: "sprint", label: "Sprint" },
-  { id: "task_type", label: "Tipo de tarefa" },
+  { id: "section", label: "Seção" },
   { id: "department", label: "Departamento" },
 ] as const;
 

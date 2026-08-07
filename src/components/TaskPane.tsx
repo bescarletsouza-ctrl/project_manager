@@ -48,8 +48,6 @@ import {
   PRIORITY_LABEL,
   STATUS_META,
   STATUS_ORDER,
-  TASK_TYPES,
-  TASK_TYPE_LABEL,
   isLate,
   type Member,
   type Project,
@@ -499,20 +497,6 @@ export function TaskPane({
                   </select>
                 </>
               )}
-
-              <FieldLabel>Tipo</FieldLabel>
-              <select
-                aria-label="Tipo de tarefa"
-                className={ctl}
-                value={task.task_type ?? ""}
-                onChange={(e) => patch.mutate({ task_type: e.target.value })}
-              >
-                {TASK_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {TASK_TYPE_LABEL[t]}
-                  </option>
-                ))}
-              </select>
 
               <FieldLabel>Sprint</FieldLabel>
               <input

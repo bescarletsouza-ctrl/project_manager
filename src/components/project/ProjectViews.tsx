@@ -52,8 +52,6 @@ import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
-  TASK_TYPES,
-  TASK_TYPE_LABEL,
   isLate,
   type Department,
   type Member,
@@ -456,7 +454,7 @@ function AddInline({ onAdd, placeholder }: { onAdd: (v: string) => void; placeho
 const COLUMN_DEFS = [
   { id: "tags", label: "Etiquetas", bp: "lg", width: 128 },
   { id: "sprint", label: "Sprint", bp: "lg", width: 96 },
-  { id: "task_type", label: "Tipo", bp: "lg", width: 96 },
+  { id: "section", label: "Seção", bp: "lg", width: 130 },
   { id: "priority", label: "Prioridade", bp: "sm", width: 96 },
   { id: "start_date", label: "Início", bp: "md", width: 116 },
   { id: "due_date", label: "Data de fim", bp: "none", width: 116 },
@@ -625,7 +623,13 @@ function sortLabel(key: SortKey): string {
   return key === "title" ? "nome" : key;
 }
 
-function sortValue(task: Task, key: SortKey, members: Member[], departments: Department[]): string {
+function sortValue(
+  task: Task,
+  key: SortKey,
+  members: Member[],
+  departments: Department[],
+  sections: Section[],
+): string {
   switch (key) {
     case "title":
       return task.title.toLowerCase();
@@ -633,8 +637,6 @@ function sortValue(task: Task, key: SortKey, members: Member[], departments: Dep
       return (task.tags ?? []).join(", ").toLowerCase();
     case "sprint":
       return (task.sprint ?? "").toLowerCase();
-    case "task_type":
-      return (task.task_type ?? "").toLowerCase();
     case "priority":
       return String(PRIORITIES_ORDER.indexOf(task.priority as Priority)).padStart(2, "0");
     case "start_date":
@@ -645,6 +647,8 @@ function sortValue(task: Task, key: SortKey, members: Member[], departments: Dep
       return (members.find((m) => m.id === task.assignee_id)?.name ?? "zzz").toLowerCase();
     case "department":
       return (departments.find((d) => d.id === task.department_id)?.name ?? "zzz").toLowerCase();
+    case "section":
+      return (sections.find((s) => s.id === task.section_id)?.name ?? "zzz").toLowerCase();
     default:
       return "";
   }
@@ -770,7 +774,7 @@ function useTaskPatch(task: Task) {
   });
 }
 
-function InlineSelect({
+export function InlineSelect({
   value,
   options,
   onChange,
@@ -800,7 +804,7 @@ function InlineSelect({
   );
 }
 
-function InlineText({
+export function InlineText({
   value,
   onCommit,
   label,
@@ -898,7 +902,7 @@ export function CustomFieldCell({
  * Responsável na lista: só a inicial e a seta. O nome ocupava a coluna inteira
  * e ainda aparecia truncado ("Br…"); aqui ele fica no menu, onde cabe.
  */
-function AssigneePicker({
+export function AssigneePicker({
   members,
   value,
   onChange,
@@ -986,12 +990,14 @@ function TaskCells({
   columns,
   members,
   departments,
+  sections,
   cols,
 }: {
   task: Task;
   columns: string[];
   members: Member[];
   departments: Department[];
+  sections: Section[];
   cols: ColumnWidths;
 }) {
   const patch = useTaskPatch(task);
@@ -1033,15 +1039,15 @@ function TaskCells({
           "lg",
           <InlineText label="Sprint" value={task.sprint ?? ""} onCommit={(v) => patch.mutate({ sprint: v || null })} />,
         )}
-      {has("task_type") &&
+      {has("section") &&
         cell(
-          "task_type",
+          "section",
           "lg",
           <InlineSelect
-            label="Tipo"
-            value={task.task_type ?? ""}
-            onChange={(v) => patch.mutate({ task_type: v })}
-            options={TASK_TYPES.map((t) => ({ value: t, label: TASK_TYPE_LABEL[t] ?? t }))}
+            label="Seção"
+            value={task.section_id ?? ""}
+            onChange={(v) => patch.mutate({ section_id: v || null })}
+            options={[{ value: "", label: "Sem seção" }, ...sections.map((s) => ({ value: s.id, label: s.name }))]}
           />,
         )}
       {has("priority") &&
@@ -1671,8 +1677,8 @@ export function ListView({
         .slice()
         .sort(
           (a, b) =>
-            sortValue(a, sort.key, members, departments).localeCompare(
-              sortValue(b, sort.key, members, departments),
+            sortValue(a, sort.key, members, departments, sections).localeCompare(
+              sortValue(b, sort.key, members, departments, sections),
             ) * factor,
         );
     }
@@ -1918,7 +1924,7 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} departments={departments} cols={cols} />
+                          <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -1960,7 +1966,7 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
-                              <TaskCells task={s} columns={columns} members={members} departments={departments} cols={cols} />
+                              <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>
