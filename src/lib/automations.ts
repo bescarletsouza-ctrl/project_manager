@@ -50,7 +50,13 @@ export function decodeFieldValue(raw: string | null): { fieldId: string; value: 
 
 /** Movimentações entre seções/projetos pedidas pelas automações. */
 export type AutoMoves = {
-  sectionId?: string | null;
+  /**
+   * Só de automação de PROJETO — grava em task_projects (via
+   * applyAutomationMoves), nunca em task.section_id. Automação de
+   * departamento grava direto em patch["section_id"] (ver runAutomations),
+   * porque esse é o campo nativo da tarefa pro departamento.
+   */
+  projectSectionId?: string | null;
   moveToProjectId?: string | null;
   addProjectIds: string[];
   /** Campos personalizados a gravar em task_field_values. */
@@ -142,8 +148,19 @@ export function runAutomations(
         patch["tags"] = [...new Set([...(task.tags ?? []), a.action_value as string])];
         break;
       case "move_section":
-        moves.sectionId = a.action_value;
-        patch["section_id"] = a.action_value;
+        // "Mover para seção" de automação de DEPARTAMENTO grava direto no
+        // campo nativo da tarefa. De PROJETO vai para task_projects (via
+        // moves.projectSectionId) — só espelha em section_id também quando
+        // a tarefa não tem departamento (senão pisaria na posição dele).
+        // Sem essa distinção, uma tarefa com projeto E departamento que
+        // dispara os dois lados juntos tinha o último a rodar sobrescrevendo
+        // o outro no mesmo campo.
+        if (a.department_id != null) {
+          patch["section_id"] = a.action_value;
+        } else if (a.project_id != null) {
+          moves.projectSectionId = a.action_value;
+          if (!task.department_id) patch["section_id"] = a.action_value;
+        }
         break;
       case "move_project":
         moves.moveToProjectId = a.action_value;
@@ -182,8 +199,8 @@ export async function applyAutomationMoves(
   container: AutomationContainer,
   moves: AutoMoves,
 ) {
-  if (moves.sectionId !== undefined && container.projectId != null) {
-    await setTaskProjectSection(taskId, container.projectId, moves.sectionId);
+  if (moves.projectSectionId !== undefined && container.projectId != null) {
+    await setTaskProjectSection(taskId, container.projectId, moves.projectSectionId);
   }
   if (moves.moveToProjectId) {
     await linkTaskToProject(taskId, moves.moveToProjectId, null);
