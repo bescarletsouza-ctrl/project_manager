@@ -195,6 +195,20 @@ export function TaskPane({
         return;
       }
 
+      if ("section_id" in input) {
+        const next = (input["section_id"] as string | null) || null;
+        const auto = runAutomations(
+          automations,
+          "section_changed",
+          { ...task, section_id: next },
+          { projectId: task.project_id, departmentId: task.department_id },
+        );
+        Object.assign(extra, auto.patch);
+        await updateTask(task.id, { ...input, ...extra });
+        await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
+        return;
+      }
+
       await updateTask(task.id, input);
     },
     onSuccess: invalidate,

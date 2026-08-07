@@ -159,6 +159,8 @@ export function AutomationsPanel({
         const fname = fields.find((f) => f.id === decoded.fieldId)?.name ?? "—";
         cond = ` (${fname} = ${decoded.value || "qualquer"})`;
       }
+    } else if (a.trigger_type === "section_changed" && a.trigger_value) {
+      cond = ` (${sections.find((s) => s.id === a.trigger_value)?.name ?? a.trigger_value})`;
     } else if (a.trigger_value) {
       cond = ` (${STATUS_META[a.trigger_value as Task["status"]]?.label ?? a.trigger_value})`;
     }
@@ -281,6 +283,20 @@ export function AutomationsPanel({
               ))}
             </select>
           </>
+        ) : form.trigger_type === "section_changed" ? (
+          <select
+            aria-label="Condição"
+            value={form.trigger_value}
+            onChange={(e) => setForm({ ...form, trigger_value: e.target.value })}
+            className="field w-full"
+          >
+            <option value="">Qualquer seção</option>
+            {sections.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
         ) : (
           <select
             aria-label="Condição"

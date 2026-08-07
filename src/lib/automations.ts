@@ -5,12 +5,14 @@ export type AutoEvent =
   | "task_created"
   | "status_changed"
   | "assignee_changed"
+  | "section_changed"
   | "field_changed";
 
 export const TRIGGER_LABEL: Record<AutoEvent, string> = {
   task_created: "Quando a tarefa é criada",
   status_changed: "Quando o status muda",
   assignee_changed: "Quando o responsável muda",
+  section_changed: "Quando a seção muda",
   field_changed: "Quando o valor de coluna muda",
 };
 
@@ -106,6 +108,7 @@ export function runAutomations(
   for (const a of automations) {
     if (!a.active || !containerMatches(a) || a.trigger_type !== event) continue;
     if (a.trigger_value && event === "status_changed" && a.trigger_value !== task.status) continue;
+    if (a.trigger_value && event === "section_changed" && a.trigger_value !== task.section_id) continue;
     if (event === "field_changed") {
       const expected = decodeFieldValue(a.trigger_value);
       const actual = task.fieldChange;

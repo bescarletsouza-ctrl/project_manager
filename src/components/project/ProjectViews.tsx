@@ -134,7 +134,12 @@ export function DeleteTaskButton({ task, className }: { task: Task; className?: 
   );
 }
 
-export function useSectionMutations(projectId: string, project: Project, automations: Automation[]) {
+export function useSectionMutations(
+  projectId: string,
+  project: Project,
+  automations: Automation[],
+  tasks: Task[],
+) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries();
 
@@ -220,7 +225,26 @@ export function useSectionMutations(projectId: string, project: Project, automat
   /** Reordena tarefas dentro de uma seção (e move entre seções quando preciso). */
   const reorderTasks = useMutation({
     mutationFn: async (input: { ids: string[]; sectionId: string; movedId?: string }) => {
-      if (input.movedId) await setTaskProjectSection(input.movedId, projectId, input.sectionId);
+      if (input.movedId) {
+        const task = tasks.find((t) => t.id === input.movedId);
+        // Só dispara a automação quando a seção realmente muda — reordenar
+        // dentro da mesma seção não é um "section_changed" de verdade.
+        if (task && task.section_id !== input.sectionId) {
+          const container = { projectId, departmentId: task.department_id };
+          const { patch, applied, moves } = runAutomations(
+            automations,
+            "section_changed",
+            { ...task, section_id: input.sectionId },
+            container,
+          );
+          if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+          await setTaskProjectSection(input.movedId, projectId, input.sectionId);
+          if (Object.keys(patch).length > 0) await updateTask(input.movedId, patch);
+          await applyAutomationMoves(input.movedId, container, moves);
+        } else {
+          await setTaskProjectSection(input.movedId, projectId, input.sectionId);
+        }
+      }
       await Promise.all(input.ids.map((id, i) => updateTask(id, { position: i })));
     },
     onSuccess: invalidate,
@@ -770,10 +794,27 @@ function TaskHeader({
 
 /* ---------- edição inline das colunas (fora da tarefa) ---------- */
 
-function useTaskPatch(task: Task) {
+function useTaskPatch(task: Task, automations: Automation[] = []) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
+    mutationFn: async (patch: Partial<Task>) => {
+      // section_id muda de container/agrupamento — precisa rodar a
+      // automação "quando a seção muda", igual ao toggle de status já faz.
+      if ("section_id" in patch && patch.section_id !== task.section_id) {
+        const container = { projectId: task.project_id, departmentId: task.department_id };
+        const { patch: autoPatch, applied, moves } = runAutomations(
+          automations,
+          "section_changed",
+          { ...task, section_id: patch.section_id ?? null },
+          container,
+        );
+        if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+        await updateTask(task.id, { ...patch, ...autoPatch });
+        await applyAutomationMoves(task.id, container, moves);
+        return;
+      }
+      await updateTask(task.id, patch);
+    },
     onSuccess: () => qc.invalidateQueries(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível salvar: ${(e as { message?: string })?.message ?? "erro"}`),
@@ -997,6 +1038,7 @@ function TaskCells({
   members,
   departments,
   allSections,
+  automations,
   cols,
 }: {
   task: Task;
@@ -1004,9 +1046,10 @@ function TaskCells({
   members: Member[];
   departments: Department[];
   allSections: Section[];
+  automations: Automation[];
   cols: ColumnWidths;
 }) {
-  const patch = useTaskPatch(task);
+  const patch = useTaskPatch(task, automations);
   const has = (id: string) => columns.includes(id);
   /** Mesma mescla do TaskPane: seções do projeto E do departamento da tarefa. */
   const taskSections = allSections.filter(
@@ -1367,19 +1410,36 @@ function TaskContextMenu({
   task,
   members,
   sections,
+  automations,
   onOpen,
   children,
 }: {
   task: Task;
   members: Member[];
   sections: Section[];
+  automations: Automation[];
   onOpen: () => void;
   children: React.ReactNode;
 }) {
   const qc = useQueryClient();
 
   const patch = useMutation({
-    mutationFn: (input: Partial<Task>) => updateTask(task.id, input),
+    mutationFn: async (input: Partial<Task>) => {
+      if ("section_id" in input && input.section_id !== task.section_id) {
+        const container = { projectId: task.project_id, departmentId: task.department_id };
+        const { patch: autoPatch, applied, moves } = runAutomations(
+          automations,
+          "section_changed",
+          { ...task, section_id: input.section_id ?? null },
+          container,
+        );
+        if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+        await updateTask(task.id, { ...input, ...autoPatch });
+        await applyAutomationMoves(task.id, container, moves);
+        return;
+      }
+      await updateTask(task.id, input);
+    },
     onSuccess: () => qc.invalidateQueries(),
     onError: () => toast.error("Não foi possível atualizar a tarefa."),
   });
@@ -1636,7 +1696,7 @@ export function ListView({
   onOpenTask,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations);
+    useSectionMutations(projectId, project, automations, tasks);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -1857,6 +1917,7 @@ export function ListView({
                           task={t}
                           members={members}
                           sections={sections}
+                          automations={automations}
                           onOpen={() => onOpenTask(t)}
                         >
                         <div
@@ -1937,7 +1998,7 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} cols={cols} />
+                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -1949,6 +2010,7 @@ export function ListView({
                               task={s}
                               members={members}
                               sections={sections}
+                              automations={automations}
                               onOpen={() => onOpenTask(s)}
                             >
                             <div
@@ -1979,7 +2041,7 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
-                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} cols={cols} />
+                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>
@@ -2021,7 +2083,7 @@ export function BoardView({
   onOpenTask,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations);
+    useSectionMutations(projectId, project, automations, tasks);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
@@ -2132,6 +2194,7 @@ export function BoardView({
                       task={t}
                       members={members}
                       sections={sections}
+                      automations={automations}
                       onOpen={() => onOpenTask(t)}
                     >
                     <div
@@ -2326,7 +2389,7 @@ const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
 export function CalendarView({ projectId, project, tasks, members, automations, sections, onOpenTask }: ViewProps) {
   const qc = useQueryClient();
-  const { addTask } = useSectionMutations(projectId, project, automations);
+  const { addTask } = useSectionMutations(projectId, project, automations, tasks);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);

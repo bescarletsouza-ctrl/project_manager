@@ -212,8 +212,23 @@ function DepartmentDetail() {
    * seção" (o oposto é o que estava faltando antes).
    */
   const moveTask = useMutation({
-    mutationFn: (input: { taskId: string; sectionId: string | null }) =>
-      updateTask(input.taskId, { section_id: input.sectionId }),
+    mutationFn: async (input: { taskId: string; sectionId: string | null }) => {
+      const task = tasks.find((t) => t.id === input.taskId);
+      if (!task || task.section_id === input.sectionId) {
+        await updateTask(input.taskId, { section_id: input.sectionId });
+        return;
+      }
+      const container = { projectId: task.project_id, departmentId: task.department_id ?? departmentId };
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "section_changed",
+        { ...task, section_id: input.sectionId },
+        container,
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(input.taskId, { section_id: input.sectionId, ...patch });
+      await applyAutomationMoves(input.taskId, container, moves);
+    },
     onSuccess: () => qc.invalidateQueries(),
     onError: () => toast.error("Não foi possível mover a tarefa."),
   });
