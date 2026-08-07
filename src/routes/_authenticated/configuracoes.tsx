@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState, MetaItem, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
-import { useInvalidate, useWorkspaceData, nameById, initials } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById, initials, departmentIdsOf } from "@/lib/useData";
 import {
   ACCESS_ROLES,
   ACCESS_ROLE_LABEL,
@@ -16,6 +16,7 @@ import {
   deleteDepartment,
   deleteMember,
   deleteTag,
+  setMemberDepartments,
   tagsQuery,
   updateClient,
   updateDepartment,
@@ -110,6 +111,7 @@ type MemberForm = {
   job_title: string;
   access_role: string;
   department_id: string;
+  extra_department_ids: string[];
   capacity_points: number;
   avatar_color: string;
 };
@@ -120,13 +122,14 @@ const emptyMember: MemberForm = {
   job_title: "",
   access_role: "colaborador",
   department_id: "",
+  extra_department_ids: [],
   capacity_points: 20,
   avatar_color: "indigo",
 };
 
 function TeamPanel() {
-  const { members, departments, tasks } = useWorkspaceData();
-  const invalidate = useInvalidate(["members"]);
+  const { members, departments, memberDepartments, tasks } = useWorkspaceData();
+  const invalidate = useInvalidate(["members", "member_departments"]);
   const [form, setForm] = useState<MemberForm | null>(null);
 
   const save = useMutation({
@@ -140,8 +143,11 @@ function TeamPanel() {
         capacity_points: Number(f.capacity_points) || 20,
         avatar_color: f.avatar_color,
       };
-      if (f.id) await updateMember(f.id, payload);
-      else await createMember(payload);
+      let memberId = f.id;
+      if (memberId) await updateMember(memberId, payload);
+      else memberId = await createMember(payload);
+      const extras = f.extra_department_ids.filter((id) => id !== f.department_id);
+      await setMemberDepartments(memberId, extras);
     },
     onSuccess: () => {
       invalidate();
@@ -231,6 +237,33 @@ function TeamPanel() {
               ))}
             </select>
           </Field>
+          <Field label="Departamentos extras">
+            <div className="flex max-h-28 flex-col gap-1 overflow-y-auto rounded-md border border-input px-3 py-2">
+              {departments.filter((d) => d.id !== form.department_id).length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nenhum outro departamento cadastrado.</p>
+              ) : (
+                departments
+                  .filter((d) => d.id !== form.department_id)
+                  .map((d) => (
+                    <label key={d.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.extra_department_ids.includes(d.id)}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            extra_department_ids: e.target.checked
+                              ? [...form.extra_department_ids, d.id]
+                              : form.extra_department_ids.filter((id) => id !== d.id),
+                          })
+                        }
+                      />
+                      {d.name}
+                    </label>
+                  ))
+              )}
+            </div>
+          </Field>
           <Field label="Capacidade (pontos)">
             <input
               type="number"
@@ -272,7 +305,11 @@ function TeamPanel() {
                 </p>
               </div>
               <div className="hidden gap-8 md:grid md:grid-cols-3">
-                <MetaItem label="Departamento">{nameById(departments, m.department_id)}</MetaItem>
+                <MetaItem label="Departamento">
+                  {departmentIdsOf(m, memberDepartments)
+                    .map((id) => nameById(departments, id))
+                    .join(", ") || "—"}
+                </MetaItem>
                 <MetaItem label="Capacidade">{m.capacity_points} pts</MetaItem>
                 <MetaItem label="Tarefas">
                   {tasks.filter((t) => t.assignee_id === m.id).length}
@@ -291,6 +328,9 @@ function TeamPanel() {
                         job_title: m.job_title ?? "",
                         access_role: m.access_role,
                         department_id: m.department_id ?? "",
+                        extra_department_ids: memberDepartments
+                          .filter((md) => md.member_id === m.id)
+                          .map((md) => md.department_id),
                         capacity_points: m.capacity_points,
                         avatar_color: m.avatar_color,
                       }),

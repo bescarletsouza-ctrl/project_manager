@@ -31,7 +31,7 @@ import {
   type Automation,
 } from "@/lib/asana";
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
-import { useInvalidate, useWorkspaceData } from "@/lib/useData";
+import { departmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
@@ -121,7 +121,7 @@ function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey
 function DepartmentDetail() {
   const { departmentId } = Route.useParams();
   const navigate = useNavigate();
-  const { departments, members, projects, tasks, isLoading } = useWorkspaceData();
+  const { departments, members, memberDepartments, projects, tasks, isLoading } = useWorkspaceData();
   const {
     sections: allSections,
     fields,
@@ -304,7 +304,7 @@ function DepartmentDetail() {
     reorderSections.mutate(ids);
   };
   const deptTasks = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
-  const deptMembers = members.filter((m) => m.department_id === departmentId);
+  const deptMembers = members.filter((m) => departmentIdsOf(m, memberDepartments).includes(departmentId));
   /**
    * TaskPane precisa receber o objeto FRESCO do cache — se receber o
    * snapshot capturado em setOpenTask, alterações que a própria pane

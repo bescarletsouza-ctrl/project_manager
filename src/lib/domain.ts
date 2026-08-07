@@ -152,6 +152,8 @@ export type Project = {
 
 
 export type Department = { id: string; name: string; color: string };
+/** Departamentos extras de uma pessoa, além do "Departamento" principal em Member.department_id. */
+export type MemberDepartment = { member_id: string; department_id: string };
 export type Client = { id: string; name: string; contact_email: string | null };
 export type Tag = { id: string; name: string; color: string };
 
@@ -302,6 +304,13 @@ export function projectHealth(project: Project, tasks: Task[]) {
   score = Math.max(0, Math.min(100, score));
   const health = score >= 75 ? "Saudável" : score >= 50 ? "Atenção" : "Crítico";
   return { total: list.length, done, progress, late, blocked, score, health };
+}
+
+/** Reconhece a seção "Não planejado" (existe por convenção em projetos/departamentos), ignorando acento e caixa. */
+const DIACRITICS_RE = /[\u0300-\u036f]/g;
+
+export function isUnplannedSectionName(name: string) {
+  return name.normalize("NFD").replace(DIACRITICS_RE, "").trim().toLowerCase() === "nao planejado";
 }
 
 export const TASK_TYPES = ["execucao", "criacao", "revisao", "reuniao", "suporte"] as const;

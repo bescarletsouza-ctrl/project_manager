@@ -77,7 +77,7 @@ export function useCurrentMember() {
   const list = (members.data ?? []) as Member[];
   const member =
     list.find((m) => m.user_id && auth?.id && m.user_id === auth.id) ??
-    list.find((m) => auth?.email && m.email.toLowerCase() === auth.email.toLowerCase()) ??
+    list.find((m) => auth?.email && m.email.trim().toLowerCase() === auth.email.trim().toLowerCase()) ??
     null;
 
   return { userId: auth?.id ?? null, email: auth?.email ?? null, member, members: list };

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar as RBar,
   BarChart,
@@ -16,9 +17,12 @@ import {
   YAxis,
 } from "recharts";
 import { TasksByPersonChart } from "@/components/dashboard/TasksByPersonChart";
+import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
+import { PeriodComparePanel } from "@/components/dashboard/PeriodComparePanel";
 import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
 import { useWorkspaceData, nameById } from "@/lib/useData";
+import { sectionsQuery } from "@/lib/asana";
 import {
   STATUS_META,
   STATUS_ORDER,
@@ -34,6 +38,7 @@ import {
   personMetrics,
   projectHealth,
   timeToStart,
+  type Task,
   type TaskStatus,
 } from "@/lib/domain";
 
@@ -55,23 +60,44 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 const PERIODS = [
-  { key: "7", label: "7 dias" },
-  { key: "15", label: "15 dias" },
-  { key: "30", label: "30 dias" },
-  { key: "90", label: "Trimestre" },
-  { key: "all", label: "Tudo" },
+  { key: "7", label: "7 dias", days: 7 },
+  { key: "15", label: "15 dias", days: 15 },
+  { key: "30", label: "30 dias", days: 30 },
+  { key: "90", label: "Trimestre", days: 90 },
 ];
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+function daysAgoIso(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function filterByDate(tasks: Task[], from: string, to: string) {
+  if (!from && !to) return tasks;
+  return tasks.filter((t) => {
+    const d = t.created_at.slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+}
 
 function Dashboard() {
   const { tasks, projects, members, departments, events, isLoading } = useWorkspaceData();
-  const [period, setPeriod] = useState("30");
+  const sectionsQ = useQuery(sectionsQuery);
+  const sections = sectionsQ.data ?? [];
+  const [dateFrom, setDateFrom] = useState(daysAgoIso(30));
+  const [dateTo, setDateTo] = useState(todayIso());
+  const [activePreset, setActivePreset] = useState("30");
+  const [selection, setSelection] = useState<Selection>(null);
+  const [deptForSections, setDeptForSections] = useState("");
 
-  const filtered = useMemo(() => {
-    if (period === "all") return tasks;
-    const days = Number(period);
-    const from = Date.now() - days * 24 * 3600 * 1000;
-    return tasks.filter((t) => new Date(t.created_at).getTime() >= from);
-  }, [tasks, period]);
+  const filtered = useMemo(() => filterByDate(tasks, dateFrom, dateTo), [tasks, dateFrom, dateTo]);
+
+  const openSelection = (title: string, list: Task[]) => setSelection({ title, tasks: list });
 
   if (isLoading) return <SkeletonGrid />;
 
@@ -82,14 +108,29 @@ function Dashboard() {
   const onTime = done.filter((t) => !isLate(t));
 
   const byStatus = STATUS_ORDER.map((s) => ({
+    status: s,
     name: STATUS_META[s].label,
     value: filtered.filter((t) => t.status === s).length,
   })).filter((d) => d.value > 0);
 
   const byDepartment = departments.map((d) => ({
+    id: d.id,
     name: d.name,
     abertas: filtered.filter((t) => t.department_id === d.id && isOpen(t)).length,
     concluidas: filtered.filter((t) => t.department_id === d.id && isDone(t)).length,
+  }));
+
+  const activeDept = deptForSections || departments[0]?.id || "";
+  const sectionOptions = activeDept
+    ? sections
+        .filter((s) => s.department_id === activeDept)
+        .slice()
+        .sort((a, b) => a.position - b.position)
+    : [];
+  const bySection = sectionOptions.map((s) => ({
+    id: s.id,
+    name: s.name,
+    total: filtered.filter((t) => t.section_id === s.id).length,
   }));
 
   const evolution = buildEvolution(done);
@@ -121,16 +162,56 @@ function Dashboard() {
             Tempos calculados automaticamente pelo histórico de movimentações — sem cronômetro.
           </p>
         </div>
-        <div className="flex gap-1 rounded-md border border-border p-1">
-          {PERIODS.map((p) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-md border border-border p-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => {
+                  setActivePreset(p.key);
+                  setDateFrom(daysAgoIso(p.days));
+                  setDateTo(todayIso());
+                }}
+                className={`rounded px-2.5 py-1 text-xs font-medium ${activePreset === p.key ? "bg-secondary" : "text-muted-foreground"}`}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`rounded px-2.5 py-1 text-xs font-medium ${period === p.key ? "bg-secondary" : "text-muted-foreground"}`}
+              onClick={() => {
+                setActivePreset("all");
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className={`rounded px-2.5 py-1 text-xs font-medium ${activePreset === "all" ? "bg-secondary" : "text-muted-foreground"}`}
             >
-              {p.label}
+              Tudo
             </button>
-          ))}
+          </div>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            De
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setActivePreset("");
+                setDateFrom(e.target.value);
+              }}
+              className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            Até
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setActivePreset("");
+                setDateTo(e.target.value);
+              }}
+              className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+            />
+          </label>
         </div>
       </div>
 
@@ -164,11 +245,28 @@ function Dashboard() {
         </div>
 
         <div className="card-surface p-4">
-          <SectionTitle title="Distribuição por status" />
+          <SectionTitle title="Distribuição por status" description="Clique numa fatia para ver as tarefas" />
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={byStatus} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                <Pie
+                  data={byStatus}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={50}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  className="cursor-pointer"
+                  onClick={(d: unknown) => {
+                    const row = d as { status?: TaskStatus; name?: string };
+                    if (row.status) {
+                      openSelection(
+                        `Tarefas — ${row.name}`,
+                        filtered.filter((t) => t.status === row.status),
+                      );
+                    }
+                  }}
+                >
                   {byStatus.map((_, i) => (
                     <Cell key={i} fill={chartColors[i % chartColors.length]} />
                   ))}
@@ -183,7 +281,7 @@ function Dashboard() {
       <TasksByPersonChart tasks={filtered} members={members} projects={projects} />
 
       <div className="card-surface p-4">
-        <SectionTitle title="Demanda por departamento" />
+        <SectionTitle title="Demanda por departamento" description="Clique numa barra para ver as tarefas" />
         <div className="mt-4 h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={byDepartment}>
@@ -192,12 +290,98 @@ function Dashboard() {
               <YAxis fontSize={11} stroke="var(--muted-foreground)" />
               <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
               <Legend />
-              <RBar dataKey="abertas" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
-              <RBar dataKey="concluidas" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+              <RBar
+                dataKey="abertas"
+                name="Abertas"
+                fill="var(--chart-1)"
+                radius={[4, 4, 0, 0]}
+                className="cursor-pointer"
+                onClick={(d: unknown) => {
+                  const row = d as { payload?: { id: string; name: string } };
+                  if (row.payload) {
+                    openSelection(
+                      `Abertas — ${row.payload.name}`,
+                      filtered.filter((t) => t.department_id === row.payload!.id && isOpen(t)),
+                    );
+                  }
+                }}
+              />
+              <RBar
+                dataKey="concluidas"
+                name="Concluídas"
+                fill="var(--chart-2)"
+                radius={[4, 4, 0, 0]}
+                className="cursor-pointer"
+                onClick={(d: unknown) => {
+                  const row = d as { payload?: { id: string; name: string } };
+                  if (row.payload) {
+                    openSelection(
+                      `Concluídas — ${row.payload.name}`,
+                      filtered.filter((t) => t.department_id === row.payload!.id && isDone(t)),
+                    );
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      <div className="card-surface p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <SectionTitle title="Tarefas por seção" description="Etapas do departamento — clique numa barra para ver as tarefas" />
+          <select
+            value={activeDept}
+            onChange={(e) => setDeptForSections(e.target.value)}
+            className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-4 h-64">
+          {bySection.length === 0 ? (
+            <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {departments.length === 0 ? "Nenhum departamento cadastrado." : "Nenhuma seção neste departamento."}
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bySection}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" fontSize={11} stroke="var(--muted-foreground)" />
+                <YAxis fontSize={11} allowDecimals={false} stroke="var(--muted-foreground)" />
+                <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
+                <RBar
+                  dataKey="total"
+                  name="Tarefas"
+                  radius={[4, 4, 0, 0]}
+                  className="cursor-pointer"
+                  onClick={(d: unknown) => {
+                    const row = d as { payload?: { id: string; name: string } };
+                    if (row.payload) {
+                      openSelection(
+                        `Seção — ${row.payload.name}`,
+                        filtered.filter((t) => t.section_id === row.payload!.id),
+                      );
+                    }
+                  }}
+                >
+                  {bySection.map((_, i) => (
+                    <Cell key={i} fill={chartColors[i % chartColors.length]} />
+                  ))}
+                </RBar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
+
+      <PeriodComparePanel tasks={tasks} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="card-surface p-4">

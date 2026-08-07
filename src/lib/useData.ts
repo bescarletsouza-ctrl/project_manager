@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clientsQuery,
   departmentsQuery,
+  memberDepartmentsQuery,
   membersQuery,
   projectsQuery,
   statusEventsQuery,
@@ -22,6 +23,7 @@ export function useInvalidate(keys: string[]) {
 export function useWorkspaceData() {
   const members = useQuery(membersQuery);
   const departments = useQuery(departmentsQuery);
+  const memberDepartments = useQuery(memberDepartmentsQuery);
   const clients = useQuery(clientsQuery);
   const projects = useQuery(projectsQuery);
   const tasks = useQuery(tasksQuery);
@@ -30,6 +32,7 @@ export function useWorkspaceData() {
   return {
     members: members.data ?? [],
     departments: departments.data ?? [],
+    memberDepartments: memberDepartments.data ?? [],
     clients: clients.data ?? [],
     projects: projects.data ?? [],
     tasks: tasks.data ?? [],
@@ -37,11 +40,21 @@ export function useWorkspaceData() {
     isLoading:
       members.isLoading ||
       departments.isLoading ||
+      memberDepartments.isLoading ||
       clients.isLoading ||
       projects.isLoading ||
       tasks.isLoading ||
       events.isLoading,
   };
+}
+
+/** IDs de departamento da pessoa: o principal (department_id) + os extras (member_departments). */
+export function departmentIdsOf(
+  member: { id: string; department_id: string | null },
+  memberDepartments: { member_id: string; department_id: string }[],
+): string[] {
+  const extras = memberDepartments.filter((md) => md.member_id === member.id).map((md) => md.department_id);
+  return member.department_id ? [member.department_id, ...extras] : extras;
 }
 
 export function nameById<T extends { id: string; name: string }>(list: T[], id?: string | null) {

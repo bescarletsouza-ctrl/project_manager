@@ -17,7 +17,7 @@ export async function resolveCurrentMember(queryClient: QueryClient): Promise<Me
   const list = await queryClient.ensureQueryData(membersQuery);
   return (
     list.find((m) => m.user_id && m.user_id === user.id) ??
-    list.find((m) => user.email && m.email.toLowerCase() === user.email.toLowerCase()) ??
+    list.find((m) => user.email && m.email.trim().toLowerCase() === user.email.trim().toLowerCase()) ??
     null
   );
 }
@@ -49,7 +49,7 @@ export function useAccessRole() {
       const list = (data ?? []) as Member[];
       return (
         list.find((m) => m.user_id && m.user_id === user.id) ??
-        list.find((m) => user.email && m.email.toLowerCase() === user.email.toLowerCase()) ??
+        list.find((m) => user.email && m.email.trim().toLowerCase() === user.email.trim().toLowerCase()) ??
         null
       );
     },

@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { Client, Department, Member, Project, StatusEvent, Tag, Task } from "./domain";
+import type { Client, Department, Member, MemberDepartment, Project, StatusEvent, Tag, Task } from "./domain";
 
 async function all<T>(table: string, order?: string): Promise<T[]> {
   let q = supabase.from(table as never).select("*");
@@ -28,6 +28,11 @@ export const clientsQuery = queryOptions({
 export const tagsQuery = queryOptions({
   queryKey: ["tags"],
   queryFn: () => all<Tag>("tags"),
+});
+
+export const memberDepartmentsQuery = queryOptions({
+  queryKey: ["member_departments"],
+  queryFn: () => all<MemberDepartment>("member_departments"),
 });
 
 export const projectsQuery = queryOptions({
@@ -563,9 +568,10 @@ export const ACCESS_ROLE_DESCRIPTION: Record<string, string> = {
   visualizador: "Só visualiza — inclusive os relatórios.",
 };
 
-export async function createMember(payload: Record<string, unknown>) {
-  const { error } = await supabase.from("members" as never).insert(payload as never);
+export async function createMember(payload: Record<string, unknown>): Promise<string> {
+  const { data, error } = await supabase.from("members" as never).insert(payload as never).select("id").single();
   if (error) throw error;
+  return (data as { id: string }).id;
 }
 export async function updateMember(id: string, patch: Record<string, unknown>) {
   const { error } = await supabase.from("members" as never).update(patch as never).eq("id", id);
@@ -573,6 +579,20 @@ export async function updateMember(id: string, patch: Record<string, unknown>) {
 }
 export async function deleteMember(id: string) {
   const { error } = await supabase.from("members" as never).delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Substitui os departamentos extras da pessoa (fora o principal, em members.department_id). */
+export async function setMemberDepartments(memberId: string, departmentIds: string[]) {
+  const { error: delError } = await supabase
+    .from("member_departments" as never)
+    .delete()
+    .eq("member_id", memberId);
+  if (delError) throw delError;
+  if (departmentIds.length === 0) return;
+  const { error } = await supabase
+    .from("member_departments" as never)
+    .insert(departmentIds.map((department_id) => ({ member_id: memberId, department_id })) as never);
   if (error) throw error;
 }
 
