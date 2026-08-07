@@ -224,29 +224,39 @@ export function isLate(t: Task) {
  * também diferente de STATUS_META: este é sobre cumprir o prazo, não sobre em
  * que etapa a tarefa está.
  */
-export type DeadlineStatus = "atrasado" | "concluido" | "sem_prazo" | "no_prazo" | "cancelado";
+export type DeadlineStatus = "atrasado" | "vencendo_hoje" | "concluido" | "sem_prazo" | "no_prazo" | "cancelado";
 
 export const DEADLINE_STATUS_LABEL: Record<DeadlineStatus, string> = {
   atrasado: "Atrasado",
+  vencendo_hoje: "Vencendo hoje",
   concluido: "Concluído",
   sem_prazo: "Sem prazo",
   no_prazo: "No prazo",
   cancelado: "Cancelado",
 };
 
-export const DEADLINE_STATUS_TONE: Record<DeadlineStatus, "danger" | "success" | "neutral" | "info"> = {
+export const DEADLINE_STATUS_TONE: Record<DeadlineStatus, "danger" | "success" | "neutral" | "info" | "warning"> = {
   atrasado: "danger",
+  vencendo_hoje: "warning",
   concluido: "success",
   sem_prazo: "neutral",
   no_prazo: "info",
   cancelado: "neutral",
 };
 
+/** Data de hoje em componentes locais (não UTC) — consistente com o "agora" que isLate() usa. */
+function todayLocalIso() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function deadlineStatus(t: Task): DeadlineStatus {
   if (isCancelled(t)) return "cancelado";
   if (isLate(t)) return "atrasado";
   if (isDone(t)) return "concluido";
   if (!t.due_date) return "sem_prazo";
+  if (t.due_date === todayLocalIso()) return "vencendo_hoje";
   return "no_prazo";
 }
 
