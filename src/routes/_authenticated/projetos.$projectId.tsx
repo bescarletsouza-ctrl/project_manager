@@ -325,7 +325,11 @@ function ProjectDetail() {
     departments,
     fields: projectFields,
     fieldValues,
-    automations: projectAutomations,
+    // Lista completa (não só projectAutomations): uma tarefa pode ter
+    // department_id além do project_id, e o runAutomations decide sozinho
+    // (via containerMatches) quais regras de projeto E de departamento
+    // se aplicam a cada tarefa. Mesmo padrão já usado no TaskPane.
+    automations,
     sectionOf,
     onOpenTask: (t: Task) => setOpenTask(t),
   };

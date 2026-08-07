@@ -306,10 +306,10 @@ function TaskToggle({
         automations,
         "status_changed",
         { ...task, status: status as Task["status"] },
-        { projectId: task.project_id },
+        { projectId: task.project_id, departmentId: task.department_id },
       );
       const res = await updateTask(task.id, { status, completed: !done, ...patch });
-      await applyAutomationMoves(task.id, { projectId: task.project_id }, moves);
+      await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       return res;
     },
     onSuccess: () => qc.invalidateQueries(),
