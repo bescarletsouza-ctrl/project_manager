@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { Client, Department, Member, Project, StatusEvent, Task } from "./domain";
+import type { Client, Department, Member, Project, StatusEvent, Tag, Task } from "./domain";
 
 async function all<T>(table: string, order?: string): Promise<T[]> {
   let q = supabase.from(table as never).select("*");
@@ -23,6 +23,11 @@ export const departmentsQuery = queryOptions({
 export const clientsQuery = queryOptions({
   queryKey: ["clients"],
   queryFn: () => all<Client>("clients"),
+});
+
+export const tagsQuery = queryOptions({
+  queryKey: ["tags"],
+  queryFn: () => all<Tag>("tags"),
 });
 
 export const projectsQuery = queryOptions({
@@ -581,6 +586,19 @@ export async function updateDepartment(id: string, patch: Record<string, unknown
 }
 export async function deleteDepartment(id: string) {
   const { error } = await supabase.from("departments" as never).delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function createTag(payload: Record<string, unknown>) {
+  const { error } = await supabase.from("tags" as never).insert(payload as never);
+  if (error) throw error;
+}
+export async function updateTag(id: string, patch: Record<string, unknown>) {
+  const { error } = await supabase.from("tags" as never).update(patch as never).eq("id", id);
+  if (error) throw error;
+}
+export async function deleteTag(id: string) {
+  const { error } = await supabase.from("tags" as never).delete().eq("id", id);
   if (error) throw error;
 }
 

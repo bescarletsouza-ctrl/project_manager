@@ -37,7 +37,7 @@ import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/aut
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { AssigneePicker, InlineSelect, InlineText } from "@/components/project/ProjectViews";
+import { AssigneePicker, InlineSelect, InlineText, TagPicker } from "@/components/project/ProjectViews";
 
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
   head: () => ({
@@ -1003,22 +1003,7 @@ function TaskCard({
             </span>
           )}
           {columnPrefs.etiquetas && (
-            <span className="w-24 shrink-0">
-              <InlineText
-                label="Etiquetas"
-                value={(task.tags ?? []).join(", ")}
-                placeholder="etiquetas"
-                onCommit={(v) =>
-                  fieldPatch.mutate({
-                    tags: v
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean),
-                  })
-                }
-                className="text-xs"
-              />
-            </span>
+            <TagPicker value={task.tags ?? []} onChange={(tags) => fieldPatch.mutate({ tags })} />
           )}
           {columnPrefs.responsavel && (
             <span className="ml-auto">
@@ -1570,22 +1555,7 @@ function TaskRow({
             </span>
           )}
           {columnPrefs.etiquetas && (
-            <span className="w-32 shrink-0">
-              <InlineText
-                label="Etiquetas"
-                value={(task.tags ?? []).join(", ")}
-                placeholder="etiquetas"
-                onCommit={(v) =>
-                  fieldPatch.mutate({
-                    tags: v
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean),
-                  })
-                }
-                className="text-xs"
-              />
-            </span>
+            <TagPicker value={task.tags ?? []} onChange={(tags) => fieldPatch.mutate({ tags })} />
           )}
           {columnPrefs.prazo && (
             <span className="w-[116px] shrink-0">

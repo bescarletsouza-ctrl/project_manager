@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState, MetaItem, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
 import { useInvalidate, useWorkspaceData, nameById, initials } from "@/lib/useData";
@@ -10,12 +11,16 @@ import {
   createClient,
   createDepartment,
   createMember,
+  createTag,
   deleteClient,
   deleteDepartment,
   deleteMember,
+  deleteTag,
+  tagsQuery,
   updateClient,
   updateDepartment,
   updateMember,
+  updateTag,
 } from "@/lib/data";
 import { requireRole } from "@/lib/access";
 
@@ -45,6 +50,7 @@ const TABS = [
   { key: "equipe", label: "Equipe e acessos" },
   { key: "departamentos", label: "Departamentos" },
   { key: "clientes", label: "Clientes" },
+  { key: "etiquetas", label: "Etiquetas" },
 ] as const;
 
 const COLORS = ["blue", "indigo", "violet", "emerald", "amber", "rose", "slate", "cyan"];
@@ -90,6 +96,7 @@ function SettingsPage() {
       {tab === "equipe" && <TeamPanel />}
       {tab === "departamentos" && <DepartmentsPanel />}
       {tab === "clientes" && <ClientsPanel />}
+      {tab === "etiquetas" && <TagsPanel />}
     </div>
   );
 }
@@ -526,6 +533,130 @@ function ClientsPanel() {
                     destructive: true,
                     separatorBefore: true,
                     onSelect: () => remove.mutate(c.id),
+                  },
+                ]}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------- Etiquetas ------------------------------ */
+
+/**
+ * Cadastro central de etiquetas. Dentro da tarefa só dá pra selecionar uma
+ * já cadastrada aqui — criar/renomear/excluir etiqueta é só neste painel.
+ */
+function TagsPanel() {
+  const { tasks } = useWorkspaceData();
+  const tags = useQuery(tagsQuery).data ?? [];
+  const invalidate = useInvalidate(["tags"]);
+  const [form, setForm] = useState<{ id?: string; name: string; color: string } | null>(null);
+
+  const save = useMutation({
+    mutationFn: async (f: { id?: string; name: string; color: string }) => {
+      const payload = { name: f.name.trim(), color: f.color };
+      if (f.id) await updateTag(f.id, payload);
+      else await createTag(payload);
+    },
+    onSuccess: () => {
+      invalidate();
+      setForm(null);
+    },
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível salvar: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteTag(id),
+    onSuccess: invalidate,
+  });
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle
+        title="Etiquetas"
+        description="Cadastre aqui — dentro da tarefa só dá pra escolher entre as já existentes."
+        action={
+          <button onClick={() => setForm({ name: "", color: "blue" })} className={primaryBtn}>
+            <Plus className="size-4" /> Nova etiqueta
+          </button>
+        }
+      />
+
+      {form && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate(form);
+          }}
+          className="card-surface grid gap-5 p-6 sm:grid-cols-3"
+        >
+          <Field label="Nome">
+            <input
+              required
+              className={input}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+          <Field label="Cor">
+            <select
+              className={input}
+              value={form.color}
+              onChange={(e) => setForm({ ...form, color: e.target.value })}
+            >
+              {COLORS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex items-end gap-2">
+            <button type="submit" className={primaryBtn}>
+              Salvar
+            </button>
+            <button type="button" onClick={() => setForm(null)} className={ghostBtn}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
+      {tags.length === 0 ? (
+        <EmptyState
+          title="Nenhuma etiqueta cadastrada"
+          description="Cadastre as etiquetas aqui para poder incluí-las nas tarefas."
+        />
+      ) : (
+        <div className="space-y-2">
+          {tags.map((t) => (
+            <div key={t.id} className="row-card row-card-hover">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">{t.name}</p>
+                  <Pill>{t.color}</Pill>
+                </div>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {tasks.filter((task) => task.tags?.includes(t.name)).length} tarefas
+                </p>
+              </div>
+              <RowMenu
+                actions={[
+                  {
+                    label: "Editar",
+                    icon: Pencil,
+                    onSelect: () => setForm({ id: t.id, name: t.name, color: t.color }),
+                  },
+                  {
+                    label: "Excluir",
+                    icon: Trash2,
+                    destructive: true,
+                    separatorBefore: true,
+                    onSelect: () => remove.mutate(t.id),
                   },
                 ]}
               />

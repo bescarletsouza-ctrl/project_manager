@@ -153,6 +153,7 @@ export type Project = {
 
 export type Department = { id: string; name: string; color: string };
 export type Client = { id: string; name: string; contact_email: string | null };
+export type Tag = { id: string; name: string; color: string };
 
 export type StatusEvent = {
   id: string;

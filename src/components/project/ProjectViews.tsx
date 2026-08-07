@@ -21,11 +21,12 @@ import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu } from "@/components/ui-bits";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteTask, duplicateSection, duplicateTask, tasksQuery, updateTask } from "@/lib/data";
+import { deleteTask, duplicateSection, duplicateTask, tagsQuery, tasksQuery, updateTask } from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
 import {
   ContextMenu,
@@ -60,7 +61,7 @@ import {
   type Project,
   type Task,
 } from "@/lib/domain";
-import { dotClass } from "@/lib/colors";
+import { dotClass, softClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
 export type ViewProps = {
@@ -1032,6 +1033,70 @@ function DepartmentPicker({
   );
 }
 
+/**
+ * Etiquetas da tarefa: só seleciona entre as já cadastradas em Configurações
+ * → Etiquetas — de propósito não dá pra digitar uma etiqueta nova aqui
+ * (cadastro fica centralizado, tarefa só inclui).
+ */
+export function TagPicker({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const tags = useQuery(tagsQuery).data ?? [];
+  const selected = tags.filter((t) => value.includes(t.name));
+
+  const toggle = (name: string) => {
+    onChange(value.includes(name) ? value.filter((v) => v !== name) : [...value, name]);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Etiquetas: ${selected.map((t) => t.name).join(", ") || "nenhuma"}`}
+        onClick={(e) => e.stopPropagation()}
+        className="flex min-w-0 flex-wrap items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-secondary"
+      >
+        {selected.length > 0 ? (
+          selected.map((t) => (
+            <span
+              key={t.id}
+              className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", softClass(t.color))}
+            >
+              {t.name}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
+        {tags.length === 0 ? (
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">
+            Nenhuma etiqueta cadastrada — crie em Configurações → Etiquetas.
+          </p>
+        ) : (
+          tags.map((t) => (
+            <DropdownMenuCheckboxItem
+              key={t.id}
+              checked={value.includes(t.name)}
+              onCheckedChange={() => toggle(t.name)}
+              onSelect={(e) => e.preventDefault()}
+              className="gap-2 text-sm"
+            >
+              <span className={cn("size-2 shrink-0 rounded-full", dotClass(t.color))} />
+              <span className="truncate">{t.name}</span>
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Células de coluna configuráveis da lista — todas editáveis fora da tarefa. */
 function TaskCells({
   task,
@@ -1075,19 +1140,7 @@ function TaskCells({
         cell(
           "tags",
           "lg",
-          <InlineText
-            label="Etiquetas"
-            value={(task.tags ?? []).join(", ")}
-            placeholder="etiquetas"
-            onCommit={(v) =>
-              patch.mutate({
-                tags: v
-                  .split(",")
-                  .map((t) => t.trim())
-                  .filter(Boolean),
-              })
-            }
-          />,
+          <TagPicker value={task.tags ?? []} onChange={(tags) => patch.mutate({ tags })} />,
         )}
       {has("sprint") &&
         cell(
@@ -2097,6 +2150,13 @@ export function BoardView({
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const departmentOf = (id?: string | null) => departments.find((d) => d.id === id) ?? null;
+  const invalidateTask = useInvalidate(["tasks"]);
+  /** Edição direta de campo do card (ex.: Etiquetas) sem abrir a tarefa. */
+  const patchTask = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Task> }) => updateTask(id, patch),
+    onSuccess: () => invalidateTask(),
+    onError: () => toast.error("Não foi possível salvar."),
+  });
   // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
   // um campo personalizado como status próprio.
   const columns = project.visible_columns ?? ["assignee", "due_date"];
@@ -2223,6 +2283,14 @@ export function BoardView({
                       }}
                       className="w-full cursor-grab space-y-2 rounded-lg border border-border bg-card p-2.5 text-left transition-shadow hover:shadow-[var(--shadow-raised)] focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
                     >
+                      {columns.includes("tags") && (
+                        <div onClick={(e) => e.stopPropagation()} className="-mx-1 -mt-0.5">
+                          <TagPicker
+                            value={t.tags ?? []}
+                            onChange={(tags) => patchTask.mutate({ id: t.id, patch: { tags } })}
+                          />
+                        </div>
+                      )}
                       <div className="flex items-start gap-2">
                         <TaskToggle task={t} automations={automations} size="sm" />
                         <span
@@ -2248,7 +2316,6 @@ export function BoardView({
                           </Pill>
                         )}
                         {columns.includes("sprint") && t.sprint && <Pill tone="info">{t.sprint}</Pill>}
-                        {columns.includes("tags") && t.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
                         {columns.includes("department") && departmentOf(t.department_id) && (
                           <Pill>
                             <span

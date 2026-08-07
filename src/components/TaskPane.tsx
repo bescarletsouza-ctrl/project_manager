@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
+import { TagPicker } from "@/components/project/ProjectViews";
 import { createTask, departmentsQuery, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
 import {
@@ -524,21 +525,7 @@ export function TaskPane({
               />
 
               <FieldLabel>Etiquetas</FieldLabel>
-              <input
-                aria-label="Etiquetas"
-                placeholder="Separadas por vírgula"
-                className={ctl}
-                key={`tags-${task.id}`}
-                defaultValue={(task.tags ?? []).join(", ")}
-                onBlur={(e) =>
-                  patch.mutate({
-                    tags: e.target.value
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
+              <TagPicker value={task.tags ?? []} onChange={(tags) => patch.mutate({ tags })} />
 
               {projectFields.map((f) => (
                 <div key={f.id} className="contents">
