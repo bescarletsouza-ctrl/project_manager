@@ -1,12 +1,17 @@
-import { linkTaskToProject, setTaskProjectSection, type Automation } from "./asana";
+import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation } from "./asana";
 import type { Task } from "./domain";
 
-export type AutoEvent = "task_created" | "status_changed" | "assignee_changed";
+export type AutoEvent =
+  | "task_created"
+  | "status_changed"
+  | "assignee_changed"
+  | "field_changed";
 
 export const TRIGGER_LABEL: Record<AutoEvent, string> = {
   task_created: "Quando a tarefa é criada",
   status_changed: "Quando o status muda",
   assignee_changed: "Quando o responsável muda",
+  field_changed: "Quando o valor de coluna muda",
 };
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -20,14 +25,40 @@ export const ACTION_LABEL: Record<string, string> = {
   move_project: "Mover para outro projeto",
   add_project: "Incluir em outro projeto",
   notify_assignee: "Notificar responsável",
+  set_field: "Definir valor de coluna",
 };
+
+/**
+ * Codifica um par (campo, valor) em uma string única para caber em
+ * trigger_value / action_value (colunas texto). Formato: "<field_id>::<value>".
+ * Escolhi "::" porque é fácil de reconhecer e não colide com uuid nem com
+ * valores comuns que usuários digitam.
+ */
+export const FIELD_VALUE_SEP = "::";
+export function encodeFieldValue(fieldId: string, value: string): string {
+  return `${fieldId}${FIELD_VALUE_SEP}${value}`;
+}
+export function decodeFieldValue(raw: string | null): { fieldId: string; value: string } | null {
+  if (!raw) return null;
+  const i = raw.indexOf(FIELD_VALUE_SEP);
+  if (i < 0) return null;
+  return { fieldId: raw.slice(0, i), value: raw.slice(i + FIELD_VALUE_SEP.length) };
+}
 
 /** Movimentações entre seções/projetos pedidas pelas automações. */
 export type AutoMoves = {
   sectionId?: string | null;
   moveToProjectId?: string | null;
   addProjectIds: string[];
+  /** Campos personalizados a gravar em task_field_values. */
+  fieldValues: { fieldId: string; value: string }[];
 };
+
+/**
+ * Contexto extra pro trigger field_changed: qual campo mudou e para qual
+ * valor. Passado no lugar de status/assignee em runAutomations.
+ */
+export type FieldChange = { fieldId: string; value: string };
 
 /**
  * Container(s) em que a alteração está acontecendo. Um mesmo evento pode
@@ -48,16 +79,18 @@ export type AutomationContainer = {
 
 /**
  * Aplica as automações ativas do container e devolve o patch resultante.
+ * Para o evento field_changed, passe { ...task, fieldChange: { fieldId, value } }
+ * no argumento task — o filtro compara com o trigger_value codificado.
  */
 export function runAutomations(
   automations: Automation[],
   event: AutoEvent,
-  task: Partial<Task>,
+  task: Partial<Task> & { fieldChange?: FieldChange },
   container: AutomationContainer,
 ) {
   const patch: Record<string, unknown> = {};
   const applied: string[] = [];
-  const moves: AutoMoves = { addProjectIds: [] };
+  const moves: AutoMoves = { addProjectIds: [], fieldValues: [] };
   let notify = false;
 
   const containerMatches = (a: Automation) => {
@@ -73,6 +106,16 @@ export function runAutomations(
   for (const a of automations) {
     if (!a.active || !containerMatches(a) || a.trigger_type !== event) continue;
     if (a.trigger_value && event === "status_changed" && a.trigger_value !== task.status) continue;
+    if (event === "field_changed") {
+      const expected = decodeFieldValue(a.trigger_value);
+      const actual = task.fieldChange;
+      if (!expected || !actual) continue;
+      // O gatilho só bate no campo certo. Valor esperado vazio =
+      // "qualquer valor no campo" — o usuário pode querer só saber que
+      // o campo mudou; se preencheu com valor específico, exige match.
+      if (expected.fieldId !== actual.fieldId) continue;
+      if (expected.value && expected.value !== actual.value) continue;
+    }
     if (!a.action_value && a.action_type !== "notify_assignee") continue;
 
     switch (a.action_type) {
@@ -109,6 +152,11 @@ export function runAutomations(
       case "notify_assignee":
         notify = true;
         break;
+      case "set_field": {
+        const target = decodeFieldValue(a.action_value);
+        if (target) moves.fieldValues.push(target);
+        break;
+      }
       default:
         break;
     }
@@ -138,5 +186,9 @@ export async function applyAutomationMoves(
   }
   for (const pid of moves.addProjectIds) {
     await linkTaskToProject(taskId, pid, null);
+  }
+  for (const { fieldId, value } of moves.fieldValues) {
+    // task_field_values usa upsert, então sobrescrever valor existente é OK.
+    await setFieldValue(taskId, fieldId, value || null);
   }
 }

@@ -483,6 +483,10 @@ function DepartmentDetail() {
           members={members}
           sections={sections.map((s) => ({ id: s.id, name: s.name }))}
           projects={[]}
+          // Custom fields no departamento ainda dependem de migração (a
+          // tabela custom_fields hoje só tem project_id). Departamento
+          // não usa field_changed/set_field por enquanto.
+          fields={[]}
         />
       ) : view === "list" ? (
         <ListPanel

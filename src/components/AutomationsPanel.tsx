@@ -8,8 +8,15 @@ import {
   deleteAutomation,
   updateAutomation,
   type Automation,
+  type CustomField,
 } from "@/lib/asana";
-import { ACTION_LABEL, TRIGGER_LABEL, type AutoEvent } from "@/lib/automations";
+import {
+  ACTION_LABEL,
+  TRIGGER_LABEL,
+  decodeFieldValue,
+  encodeFieldValue,
+  type AutoEvent,
+} from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -36,6 +43,7 @@ export function AutomationsPanel({
   members,
   sections,
   projects,
+  fields,
 }: {
   container: Container;
   automations: Automation[];
@@ -47,6 +55,12 @@ export function AutomationsPanel({
    * automação, então quem chama passa `[]` e os selects mudam de valor.
    */
   projects: { id: string; name: string }[];
+  /**
+   * Campos personalizados disponíveis para o trigger field_changed e
+   * para a ação set_field. Só campos do tipo select (com options) fazem
+   * sentido — usados como "status" próprio do container.
+   */
+  fields: CustomField[];
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -55,19 +69,35 @@ export function AutomationsPanel({
     trigger_value: "",
     action_type: "set_status",
     action_value: "",
+    // Estado auxiliar para field_changed e set_field: primeiro o campo
+    // é escolhido, depois o valor. No envio essas duas partes viram um
+    // único "<field_id>::<value>" via encodeFieldValue.
+    field_id: "",
+    field_value: "",
   });
 
   const add = useMutation({
-    mutationFn: () =>
-      createAutomation({
+    mutationFn: () => {
+      // Regras que envolvem campo personalizado empacotam o par
+      // (field_id, value) no trigger_value/action_value com "::".
+      const triggerVal =
+        form.trigger_type === "field_changed" && form.field_id
+          ? encodeFieldValue(form.field_id, form.field_value)
+          : form.trigger_value || null;
+      const actionVal =
+        form.action_type === "set_field" && form.field_id
+          ? encodeFieldValue(form.field_id, form.field_value)
+          : form.action_value || null;
+      return createAutomation({
         project_id: container.kind === "project" ? container.projectId : null,
         department_id: container.kind === "department" ? container.departmentId : null,
         name: form.name.trim(),
         trigger_type: form.trigger_type,
-        trigger_value: form.trigger_value || null,
+        trigger_value: triggerVal,
         action_type: form.action_type,
-        action_value: form.action_value || null,
-      }),
+        action_value: actionVal,
+      });
+    },
     onSuccess: () => {
       setForm({
         name: "",
@@ -75,6 +105,8 @@ export function AutomationsPanel({
         trigger_value: "",
         action_type: "set_status",
         action_value: "",
+        field_id: "",
+        field_value: "",
       });
       qc.invalidateQueries();
       toast.success("Automação criada.");
@@ -118,18 +150,34 @@ export function AutomationsPanel({
 
   const describe = (a: Automation) => {
     const trigger = TRIGGER_LABEL[a.trigger_type as AutoEvent] ?? a.trigger_type;
-    const cond = a.trigger_value
-      ? ` (${STATUS_META[a.trigger_value as Task["status"]]?.label ?? a.trigger_value})`
-      : "";
+    // Condição do gatilho — status_changed vira "(Concluído)",
+    // field_changed vira "(Coluna X = Valor Y)".
+    let cond = "";
+    if (a.trigger_type === "field_changed") {
+      const decoded = decodeFieldValue(a.trigger_value);
+      if (decoded) {
+        const fname = fields.find((f) => f.id === decoded.fieldId)?.name ?? "—";
+        cond = ` (${fname} = ${decoded.value || "qualquer"})`;
+      }
+    } else if (a.trigger_value) {
+      cond = ` (${STATUS_META[a.trigger_value as Task["status"]]?.label ?? a.trigger_value})`;
+    }
     const action = ACTION_LABEL[a.action_type] ?? a.action_type;
-    const value =
-      a.action_type === "set_assignee"
-        ? (members.find((m) => m.id === a.action_value)?.name ?? "—")
-        : a.action_type === "move_section"
-          ? (sections.find((s) => s.id === a.action_value)?.name ?? "—")
-          : a.action_type === "move_project" || a.action_type === "add_project"
-            ? (projects.find((p) => p.id === a.action_value)?.name ?? "—")
-            : (a.action_value ?? "");
+    let value: string;
+    if (a.action_type === "set_field") {
+      const decoded = decodeFieldValue(a.action_value);
+      value = decoded
+        ? `${fields.find((f) => f.id === decoded.fieldId)?.name ?? "—"} = ${decoded.value}`
+        : "—";
+    } else if (a.action_type === "set_assignee") {
+      value = members.find((m) => m.id === a.action_value)?.name ?? "—";
+    } else if (a.action_type === "move_section") {
+      value = sections.find((s) => s.id === a.action_value)?.name ?? "—";
+    } else if (a.action_type === "move_project" || a.action_type === "add_project") {
+      value = projects.find((p) => p.id === a.action_value)?.name ?? "—";
+    } else {
+      value = a.action_value ?? "";
+    }
     return `${trigger}${cond} → ${action} ${value}`.trim();
   };
 
@@ -203,20 +251,52 @@ export function AutomationsPanel({
             </option>
           ))}
         </select>
-        <select
-          aria-label="Condição"
-          value={form.trigger_value}
-          onChange={(e) => setForm({ ...form, trigger_value: e.target.value })}
-          disabled={form.trigger_type !== "status_changed"}
-          className="field w-full"
-        >
-          <option value="">Qualquer status</option>
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_META[s].label}
-            </option>
-          ))}
-        </select>
+        {form.trigger_type === "field_changed" ? (
+          <>
+            <select
+              aria-label="Coluna do gatilho"
+              value={form.field_id}
+              onChange={(e) => setForm({ ...form, field_id: e.target.value, field_value: "" })}
+              className="field w-full"
+            >
+              <option value="">Coluna…</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Valor do gatilho"
+              value={form.field_value}
+              onChange={(e) => setForm({ ...form, field_value: e.target.value })}
+              disabled={!form.field_id}
+              className="field w-full"
+            >
+              <option value="">Qualquer valor</option>
+              {(fields.find((f) => f.id === form.field_id)?.options ?? []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <select
+            aria-label="Condição"
+            value={form.trigger_value}
+            onChange={(e) => setForm({ ...form, trigger_value: e.target.value })}
+            disabled={form.trigger_type !== "status_changed"}
+            className="field w-full"
+          >
+            <option value="">Qualquer status</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_META[s].label}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           aria-label="Ação"
           value={form.action_type}
@@ -229,7 +309,37 @@ export function AutomationsPanel({
             </option>
           ))}
         </select>
-        {options ? (
+        {form.action_type === "set_field" ? (
+          <>
+            <select
+              aria-label="Coluna alvo"
+              value={form.field_id}
+              onChange={(e) => setForm({ ...form, field_id: e.target.value, field_value: "" })}
+              className="field w-full"
+            >
+              <option value="">Coluna…</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Novo valor"
+              value={form.field_value}
+              onChange={(e) => setForm({ ...form, field_value: e.target.value })}
+              disabled={!form.field_id}
+              className="field w-full"
+            >
+              <option value="">Novo valor…</option>
+              {(fields.find((f) => f.id === form.field_id)?.options ?? []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : options ? (
           <select
             aria-label="Valor da ação"
             value={form.action_value}

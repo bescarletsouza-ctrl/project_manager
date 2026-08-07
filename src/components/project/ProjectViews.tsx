@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -25,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteTask, duplicateSection, duplicateTask, updateTask } from "@/lib/data";
+import { deleteTask, duplicateSection, duplicateTask, tasksQuery, updateTask } from "@/lib/data";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -52,8 +52,6 @@ import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
-  STATUS_META,
-  STATUS_ORDER,
   TASK_TYPES,
   TASK_TYPE_LABEL,
   isLate,
@@ -445,6 +443,13 @@ function AddInline({ onAdd, placeholder }: { onAdd: (v: string) => void; placeho
  * Ordem, rótulo, largura padrão e a partir de qual breakpoint a coluna aparece.
  * A largura é só o ponto de partida — o usuário arrasta a borda para ajustar.
  */
+/**
+ * Colunas oferecidas em Lista/Quadro. NÃO tem "status" — o produto pediu
+ * pra remover o status nativo da UI porque cada projeto vai definir o
+ * "status" que quiser via campo personalizado (custom_fields). O campo
+ * task.status continua existindo no banco (dashboards, isOpen/isDone,
+ * dependências dependem dele), mas some da grade e do card.
+ */
 const COLUMN_DEFS = [
   { id: "tags", label: "Etiquetas", bp: "lg", width: 128 },
   { id: "sprint", label: "Sprint", bp: "lg", width: 96 },
@@ -452,7 +457,6 @@ const COLUMN_DEFS = [
   { id: "priority", label: "Prioridade", bp: "sm", width: 96 },
   { id: "start_date", label: "Início", bp: "md", width: 116 },
   { id: "due_date", label: "Data de fim", bp: "none", width: 116 },
-  { id: "status", label: "Status", bp: "sm", width: 132 },
   { id: "assignee", label: "Responsável", bp: "none", width: 92 },
 ] as const;
 
@@ -633,8 +637,6 @@ function sortValue(task: Task, key: SortKey, members: Member[]): string {
       return task.start_date ?? "9999-12-31";
     case "due_date":
       return task.due_date ?? "9999-12-31";
-    case "status":
-      return String(STATUS_ORDER.indexOf(task.status)).padStart(2, "0");
     case "assignee":
       return (members.find((m) => m.id === task.assignee_id)?.name ?? "zzz").toLowerCase();
     default:
@@ -826,19 +828,47 @@ function InlineText({
   );
 }
 
-/** Célula de campo personalizado editável. */
+/**
+ * Célula de campo personalizado editável. Depois de salvar o valor no
+ * banco, dispara o evento field_changed nas automações — assim uma
+ * regra "quando coluna Status vira Concluído → mover para seção
+ * Concluído" funciona igual ao status_changed nativo.
+ */
 export function CustomFieldCell({
   taskId,
   field,
   value,
+  automations,
+  container,
 }: {
   taskId: string;
   field: CustomField;
   value: string;
+  /** Passar undefined quando não quiser rodar automações (contextos legados). */
+  automations?: Automation[];
+  container?: { projectId?: string | null; departmentId?: string | null };
 }) {
   const qc = useQueryClient();
+  const allTasks = useQuery(tasksQuery).data ?? [];
   const save = useMutation({
-    mutationFn: (v: string) => setFieldValue(taskId, field.id, v === "" ? null : v),
+    mutationFn: async (v: string) => {
+      const newValue = v === "" ? null : v;
+      await setFieldValue(taskId, field.id, newValue);
+      if (automations && container && newValue !== null) {
+        const task = allTasks.find((t) => t.id === taskId);
+        if (task) {
+          const { patch, applied, moves } = runAutomations(
+            automations,
+            "field_changed",
+            { ...task, fieldChange: { fieldId: field.id, value: newValue } },
+            container,
+          );
+          if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+          if (Object.keys(patch).length > 0) await updateTask(taskId, patch);
+          await applyAutomationMoves(taskId, container, moves);
+        }
+      }
+    },
     onSuccess: () => qc.invalidateQueries(),
     onError: () => toast.error("Não foi possível salvar o campo."),
   });
@@ -998,17 +1028,7 @@ function TaskCells({
           />,
           isLate(task) ? "text-destructive" : undefined,
         )}
-      {has("status") &&
-        cell(
-          "status",
-          "sm",
-          <InlineSelect
-            label="Status"
-            value={task.status}
-            onChange={(v) => patch.mutate({ status: v as Task["status"], completed: v === "concluido" })}
-            options={STATUS_ORDER.map((s) => ({ value: s, label: STATUS_META[s]?.label ?? s }))}
-          />,
-        )}
+      {/* Coluna "status" foi removida intencionalmente — usar campo personalizado. */}
       {has("assignee") &&
         cell(
           "assignee",
@@ -1566,7 +1586,9 @@ export function ListView({
     bulkDelete,
   } = useTaskSelection(tasks, projectId);
 
-  const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
+  // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
+  // um campo personalizado como status próprio.
+  const columns = project.visible_columns ?? ["assignee", "due_date"];
   const anyCustomPicked = columns.some((c) => c.startsWith("cf:"));
   const visibleFields = anyCustomPicked ? fields.filter((f) => columns.includes(`cf:${f.id}`)) : fields;
   const valueOf = (taskId: string, fieldId: string) =>
@@ -1821,7 +1843,13 @@ export function ListView({
                               style={{ width: cols.widthOf(`cf:${f.id}`) }}
                               className="shrink-0"
                             >
-                              <CustomFieldCell taskId={t.id} field={f} value={valueOf(t.id, f.id)} />
+                              <CustomFieldCell
+                                taskId={t.id}
+                                field={f}
+                                value={valueOf(t.id, f.id)}
+                                automations={automations}
+                                container={{ projectId, departmentId: t.department_id }}
+                              />
                             </span>
                           ))}
                           <TaskCells task={t} columns={columns} members={members} cols={cols} />
@@ -1919,7 +1947,9 @@ export function BoardView({
     reorderTasks: (input) => reorderTasks.mutate(input),
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
-  const columns = project.visible_columns ?? ["assignee", "due_date", "status"];
+  // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
+  // um campo personalizado como status próprio.
+  const columns = project.visible_columns ?? ["assignee", "due_date"];
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
 
   const unsectioned = tasks.filter((t) => !sectionOf(t) && !t.parent_task_id);

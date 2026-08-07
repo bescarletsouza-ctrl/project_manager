@@ -554,6 +554,7 @@ function ProjectDetail() {
               members={members}
               sections={projectSections}
               projects={projects.filter((p) => p.id !== projectId)}
+              fields={projectFields}
             />
           )}
         </>
