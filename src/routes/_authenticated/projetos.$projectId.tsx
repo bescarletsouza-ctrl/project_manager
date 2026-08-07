@@ -222,7 +222,7 @@ function ProjectDetail() {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { projects, tasks, members, isLoading } = useWorkspaceData();
+  const { projects, tasks, members, departments, isLoading } = useWorkspaceData();
   const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations, attachments } =
     useAsanaData();
   const { member: currentMember, userId } = useCurrentMember();
@@ -322,6 +322,7 @@ function ProjectDetail() {
     sections: projectSections,
     tasks: filtered,
     members,
+    departments,
     fields: projectFields,
     fieldValues,
     automations: projectAutomations,

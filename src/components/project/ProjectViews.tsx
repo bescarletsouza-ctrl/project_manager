@@ -55,11 +55,13 @@ import {
   TASK_TYPES,
   TASK_TYPE_LABEL,
   isLate,
+  type Department,
   type Member,
   type Priority,
   type Project,
   type Task,
 } from "@/lib/domain";
+import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
 export type ViewProps = {
@@ -68,6 +70,7 @@ export type ViewProps = {
   sections: Section[];
   tasks: Task[];
   members: Member[];
+  departments: Department[];
   fields: CustomField[];
   fieldValues: TaskFieldValue[];
   automations: Automation[];
@@ -457,6 +460,7 @@ const COLUMN_DEFS = [
   { id: "priority", label: "Prioridade", bp: "sm", width: 96 },
   { id: "start_date", label: "Início", bp: "md", width: 116 },
   { id: "due_date", label: "Data de fim", bp: "none", width: 116 },
+  { id: "department", label: "Departamento", bp: "sm", width: 120 },
   { id: "assignee", label: "Responsável", bp: "none", width: 92 },
 ] as const;
 
@@ -621,7 +625,7 @@ function sortLabel(key: SortKey): string {
   return key === "title" ? "nome" : key;
 }
 
-function sortValue(task: Task, key: SortKey, members: Member[]): string {
+function sortValue(task: Task, key: SortKey, members: Member[], departments: Department[]): string {
   switch (key) {
     case "title":
       return task.title.toLowerCase();
@@ -639,6 +643,8 @@ function sortValue(task: Task, key: SortKey, members: Member[]): string {
       return task.due_date ?? "9999-12-31";
     case "assignee":
       return (members.find((m) => m.id === task.assignee_id)?.name ?? "zzz").toLowerCase();
+    case "department":
+      return (departments.find((d) => d.id === task.department_id)?.name ?? "zzz").toLowerCase();
     default:
       return "";
   }
@@ -932,16 +938,60 @@ function AssigneePicker({
   );
 }
 
+/** Departamento na lista: bolinha colorida + nome, mesmo padrão do responsável. */
+function DepartmentPicker({
+  departments,
+  value,
+  onChange,
+}: {
+  departments: Department[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const current = departments.find((d) => d.id === value) ?? null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Departamento: ${current?.name ?? "nenhum"}`}
+        title={current?.name ?? "Sem departamento"}
+        onClick={(e) => e.stopPropagation()}
+        className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-secondary"
+      >
+        <span className={cn("size-2 shrink-0 rounded-full", dotClass(current?.color))} />
+        <span className="min-w-0 truncate text-sm">{current?.name ?? "—"}</span>
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
+        <DropdownMenuItem onSelect={() => onChange(null)} className="gap-2 text-sm">
+          <span className="size-2 shrink-0 rounded-full bg-slate-400" />
+          <span className="text-muted-foreground">Sem departamento</span>
+          {!current && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+        {departments.map((d) => (
+          <DropdownMenuItem key={d.id} onSelect={() => onChange(d.id)} className="gap-2 text-sm">
+            <span className={cn("size-2 shrink-0 rounded-full", dotClass(d.color))} />
+            <span className="truncate">{d.name}</span>
+            {d.id === value && <Check className="ml-auto size-3.5 shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Células de coluna configuráveis da lista — todas editáveis fora da tarefa. */
 function TaskCells({
   task,
   columns,
   members,
+  departments,
   cols,
 }: {
   task: Task;
   columns: string[];
   members: Member[];
+  departments: Department[];
   cols: ColumnWidths;
 }) {
   const patch = useTaskPatch(task);
@@ -1029,6 +1079,16 @@ function TaskCells({
           isLate(task) ? "text-destructive" : undefined,
         )}
       {/* Coluna "status" foi removida intencionalmente — usar campo personalizado. */}
+      {has("department") &&
+        cell(
+          "department",
+          "sm",
+          <DepartmentPicker
+            departments={departments}
+            value={task.department_id}
+            onChange={(id) => patch.mutate({ department_id: id })}
+          />,
+        )}
       {has("assignee") &&
         cell(
           "assignee",
@@ -1549,6 +1609,7 @@ export function ListView({
   sections,
   tasks,
   members,
+  departments,
   fields,
   fieldValues,
   automations,
@@ -1608,7 +1669,12 @@ export function ListView({
       const factor = sort.dir === "asc" ? 1 : -1;
       return list
         .slice()
-        .sort((a, b) => sortValue(a, sort.key, members).localeCompare(sortValue(b, sort.key, members)) * factor);
+        .sort(
+          (a, b) =>
+            sortValue(a, sort.key, members, departments).localeCompare(
+              sortValue(b, sort.key, members, departments),
+            ) * factor,
+        );
     }
     if (manualOrder) {
       return list.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -1852,7 +1918,7 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} cols={cols} />
+                          <TaskCells task={t} columns={columns} members={members} departments={departments} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -1894,7 +1960,7 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
-                              <TaskCells task={s} columns={columns} members={members} cols={cols} />
+                              <TaskCells task={s} columns={columns} members={members} departments={departments} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>

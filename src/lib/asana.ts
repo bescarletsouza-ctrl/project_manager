@@ -130,6 +130,7 @@ export const TASK_COLUMNS = [
   { id: "tags", label: "Etiquetas" },
   { id: "sprint", label: "Sprint" },
   { id: "task_type", label: "Tipo de tarefa" },
+  { id: "department", label: "Departamento" },
 ] as const;
 
 export type TaskColumn = (typeof TASK_COLUMNS)[number]["id"];
