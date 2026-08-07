@@ -206,6 +206,39 @@ export function isLate(t: Task) {
   return new Date() > due;
 }
 
+/**
+ * Status de prazo: automático, calculado a partir de due_date/completed_at —
+ * não é um campo, não tem UI de configuração. Diferente do "status" nativo da
+ * tarefa (workflow, removido da grade em favor de campo personalizado) e
+ * também diferente de STATUS_META: este é sobre cumprir o prazo, não sobre em
+ * que etapa a tarefa está.
+ */
+export type DeadlineStatus = "atrasado" | "concluido" | "sem_prazo" | "no_prazo" | "cancelado";
+
+export const DEADLINE_STATUS_LABEL: Record<DeadlineStatus, string> = {
+  atrasado: "Atrasado",
+  concluido: "Concluído",
+  sem_prazo: "Sem prazo",
+  no_prazo: "No prazo",
+  cancelado: "Cancelado",
+};
+
+export const DEADLINE_STATUS_TONE: Record<DeadlineStatus, "danger" | "success" | "neutral" | "info"> = {
+  atrasado: "danger",
+  concluido: "success",
+  sem_prazo: "neutral",
+  no_prazo: "info",
+  cancelado: "neutral",
+};
+
+export function deadlineStatus(t: Task): DeadlineStatus {
+  if (isCancelled(t)) return "cancelado";
+  if (isLate(t)) return "atrasado";
+  if (isDone(t)) return "concluido";
+  if (!t.due_date) return "sem_prazo";
+  return "no_prazo";
+}
+
 /** Lead time: criação → conclusão (horas) */
 export const leadTime = (t: Task) => hoursBetween(t.created_at, t.completed_at);
 /** Cycle time: início da execução → conclusão (horas) */

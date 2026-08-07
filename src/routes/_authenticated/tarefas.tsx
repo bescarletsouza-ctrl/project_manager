@@ -6,6 +6,7 @@ import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bit
 import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
+import { DeadlinePill } from "@/components/project/ProjectViews";
 import {
   COMPLEXITY_OPTIONS,
   PRIORITIES,
@@ -158,7 +159,7 @@ function TasksPage() {
                           {PRIORITY_LABEL[t.priority]}
                         </Pill>
                         <Pill tone="info">{t.complexity} pts</Pill>
-                        {isLate(t) && <Pill tone="danger">Atrasada</Pill>}
+                        <DeadlinePill task={t} />
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {nameById(members, t.assignee_id)} · {t.due_date ?? "sem prazo"}
@@ -182,6 +183,7 @@ function TasksPage() {
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium">Pts</th>
                 <th className="px-4 py-2 font-medium">Prazo</th>
+                <th className="px-4 py-2 font-medium">Situação do prazo</th>
                 <th className="px-4 py-2 font-medium">Lead time</th>
               </tr>
             </thead>
@@ -199,6 +201,9 @@ function TasksPage() {
                   </td>
                   <td className="px-4 py-2 tabular-nums">{t.complexity}</td>
                   <td className={`px-4 py-2 ${isLate(t) ? "text-destructive" : ""}`}>{t.due_date ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <DeadlinePill task={t} />
+                  </td>
                   <td className="px-4 py-2 tabular-nums">{formatHours(leadTime(t))}</td>
                 </tr>
               ))}

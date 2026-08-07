@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
-import { TagPicker } from "@/components/project/ProjectViews";
+import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
 import { createTask, departmentsQuery, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
 import {
@@ -452,7 +452,7 @@ export function TaskPane({
                   value={task.due_date ?? ""}
                   onChange={(e) => patch.mutate({ due_date: e.target.value || null })}
                 />
-                {isLate(task) && <Pill tone="danger">atrasada</Pill>}
+                <DeadlinePill task={task} />
               </div>
 
               <FieldLabel>Início</FieldLabel>

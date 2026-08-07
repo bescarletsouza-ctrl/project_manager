@@ -37,7 +37,7 @@ import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/aut
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { AssigneePicker, InlineSelect, InlineText, TagPicker } from "@/components/project/ProjectViews";
+import { AssigneePicker, DeadlinePill, InlineSelect, InlineText, TagPicker } from "@/components/project/ProjectViews";
 
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
   head: () => ({
@@ -968,6 +968,7 @@ function TaskCard({
               {projectName}
             </Pill>
           )}
+          <DeadlinePill task={task} />
           {columnPrefs.prazo && (
             <span className="w-24 shrink-0">
               <InlineText
@@ -1557,6 +1558,7 @@ function TaskRow({
           {columnPrefs.etiquetas && (
             <TagPicker value={task.tags ?? []} onChange={(tags) => fieldPatch.mutate({ tags })} />
           )}
+          <DeadlinePill task={task} />
           {columnPrefs.prazo && (
             <span className="w-[116px] shrink-0">
               <InlineText

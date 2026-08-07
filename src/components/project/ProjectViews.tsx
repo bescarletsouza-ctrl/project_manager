@@ -52,8 +52,11 @@ import {
 } from "@/lib/asana";
 import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
 import {
+  DEADLINE_STATUS_LABEL,
+  DEADLINE_STATUS_TONE,
   PRIORITIES,
   PRIORITY_LABEL,
+  deadlineStatus,
   isLate,
   type Department,
   type Member,
@@ -101,6 +104,14 @@ function toISO(d: Date) {
 function shortDate(date?: string | null) {
   if (!date) return "—";
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+const DEADLINE_STATUS_WIDTH = 96;
+
+/** Pill de status de prazo — automático (não é coluna configurável). */
+export function DeadlinePill({ task }: { task: Task }) {
+  const status = deadlineStatus(task);
+  return <Pill tone={DEADLINE_STATUS_TONE[status]}>{DEADLINE_STATUS_LABEL[status]}</Pill>;
 }
 
 /** Botão de excluir tarefa (com confirmação). */
@@ -792,6 +803,12 @@ function TaskHeader({
         <span className="truncate">Nome da tarefa</span>
         {arrow("title")}
       </button>
+      <span
+        style={{ width: DEADLINE_STATUS_WIDTH }}
+        className={cn("shrink-0 items-center self-stretch", SHOW["none"], labelCls, "text-muted-foreground")}
+      >
+        Status
+      </span>
       {fields.map((f) => column(`cf:${f.id}`, f.name, "none"))}
       {COLUMN_DEFS.filter((c) => columns.includes(c.id)).map((c) => column(c.id, c.label, c.bp, c.id))}
       <span className="size-6 shrink-0" />
@@ -2033,6 +2050,9 @@ export function ListView({
                               </Pill>
                             )}
                           </button>
+                          <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
+                            <DeadlinePill task={t} />
+                          </span>
                           {visibleFields.map((f) => (
                             <span
                               key={f.id}
@@ -2092,6 +2112,9 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
+                              <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
+                                <DeadlinePill task={s} />
+                              </span>
                               <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
@@ -2304,6 +2327,7 @@ export function BoardView({
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-1">
+                        <DeadlinePill task={t} />
                         {columns.includes("start_date") && t.start_date && (
                           <Pill tone="neutral">{shortDate(t.start_date)}</Pill>
                         )}
