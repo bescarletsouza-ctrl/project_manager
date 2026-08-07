@@ -18,7 +18,14 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
 import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
-import { createTask, departmentsQuery, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
+import {
+  createTask,
+  departmentsQuery,
+  deleteTask,
+  statusEventsQuery,
+  taskFieldActivityQuery,
+  updateTask,
+} from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
 import {
   FIELD_TYPE_LABEL,
@@ -55,6 +62,7 @@ import {
   type Member,
   type Project,
   type Task,
+  type TaskFieldActivity,
 } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -101,6 +109,7 @@ export function TaskPane({
   onOpenTask,
 }: Props) {
   const events = useQuery(statusEventsQuery).data ?? [];
+  const fieldActivity = useQuery(taskFieldActivityQuery).data ?? [];
   const departments = useQuery(departmentsQuery).data ?? [];
 
   const [title, setTitle] = useState(task.title);
@@ -318,8 +327,43 @@ export function TaskPane({
     const fromEvents = events
       .filter((e) => e.task_id === task.id)
       .map((e) => ({ id: `e-${e.id}`, at: e.entered_at, kind: "status" as const, event: e }));
-    return [...fromComments, ...fromEvents].sort((a, b) => a.at.localeCompare(b.at));
-  }, [taskComments, events, task.id]);
+    const fromFieldActivity = fieldActivity
+      .filter((a) => a.task_id === task.id)
+      .map((a) => ({ id: `f-${a.id}`, at: a.created_at, kind: "field" as const, change: a }));
+    return [...fromComments, ...fromEvents, ...fromFieldActivity].sort((a, b) => a.at.localeCompare(b.at));
+  }, [taskComments, events, fieldActivity, task.id]);
+
+  /** Descrição legível de uma mudança de campo, pra linha de atividade. */
+  function describeFieldChange(change: TaskFieldActivity): string {
+    const memberName = (id: string | null) => (id ? (memberOf(id)?.name ?? "alguém") : "ninguém");
+    const departmentName = (id: string | null) => (id ? (departments.find((d) => d.id === id)?.name ?? "—") : "nenhum");
+    const projectName = (id: string | null) => (id ? (projects.find((p) => p.id === id)?.name ?? "—") : "nenhum");
+    const sectionName = (id: string | null) => (id ? (sections.find((s) => s.id === id)?.name ?? "—") : "nenhuma");
+    const dateLabel = (v: string | null) => (v ? new Date(`${v}T12:00:00`).toLocaleDateString("pt-BR") : "removido");
+
+    switch (change.field) {
+      case "assignee_id":
+        return `Responsável alterado para ${memberName(change.new_value)}`;
+      case "due_date":
+        return `Prazo alterado para ${dateLabel(change.new_value)}`;
+      case "start_date":
+        return `Início alterado para ${dateLabel(change.new_value)}`;
+      case "department_id":
+        return `Departamento alterado para ${departmentName(change.new_value)}`;
+      case "project_id":
+        return `Projeto alterado para ${projectName(change.new_value)}`;
+      case "section_id":
+        return `Seção alterada para ${sectionName(change.new_value)}`;
+      case "priority":
+        return `Prioridade alterada para ${PRIORITY_LABEL[change.new_value as keyof typeof PRIORITY_LABEL] ?? change.new_value}`;
+      case "complexity":
+        return `Complexidade alterada para ${change.new_value} pts`;
+      case "title":
+        return `Título alterado para "${change.new_value}"`;
+      default:
+        return `${change.field} alterado`;
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-end bg-foreground/20" onMouseDown={onClose}>
@@ -683,7 +727,7 @@ export function TaskPane({
                           : false
                       }
                     />
-                  ) : (
+                  ) : item.kind === "status" ? (
                     <li key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="size-1.5 shrink-0 rounded-full bg-border" />
                       Movida para{" "}
@@ -691,6 +735,12 @@ export function TaskPane({
                         {STATUS_META[item.event.to_status as Task["status"]]?.label ?? item.event.to_status}
                       </span>
                       <span>· {new Date(item.event.entered_at).toLocaleString("pt-BR")}</span>
+                    </li>
+                  ) : (
+                    <li key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="size-1.5 shrink-0 rounded-full bg-border" />
+                      <span className="font-medium text-foreground">{describeFieldChange(item.change)}</span>
+                      <span>· {new Date(item.change.created_at).toLocaleString("pt-BR")}</span>
                     </li>
                   ),
                 )}

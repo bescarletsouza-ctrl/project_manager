@@ -167,6 +167,17 @@ export type StatusEvent = {
   duration_minutes: number | null;
 };
 
+/** Mudança de campo da tarefa (responsável, prazo, seção, prioridade etc.) — gravada por trigger, ver migration 20260807160000. */
+export type TaskFieldActivity = {
+  id: string;
+  task_id: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by_user: string | null;
+  created_at: string;
+};
+
 /* ---------- time helpers (calculados a partir do histórico) ---------- */
 
 export const HOUR = 1000 * 60 * 60;

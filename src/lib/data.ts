@@ -1,6 +1,16 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { Client, Department, Member, MemberDepartment, Project, StatusEvent, Tag, Task } from "./domain";
+import type {
+  Client,
+  Department,
+  Member,
+  MemberDepartment,
+  Project,
+  StatusEvent,
+  Tag,
+  Task,
+  TaskFieldActivity,
+} from "./domain";
 
 async function all<T>(table: string, order?: string): Promise<T[]> {
   let q = supabase.from(table as never).select("*");
@@ -48,6 +58,11 @@ export const tasksQuery = queryOptions({
 export const statusEventsQuery = queryOptions({
   queryKey: ["status_events"],
   queryFn: () => all<StatusEvent>("task_status_history", "entered_at"),
+});
+
+export const taskFieldActivityQuery = queryOptions({
+  queryKey: ["task_field_activity"],
+  queryFn: () => all<TaskFieldActivity>("task_field_activity", "created_at"),
 });
 
 export type ProjectStatus = {
