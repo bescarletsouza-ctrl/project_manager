@@ -2069,6 +2069,9 @@ export function BoardView({
   allSections,
   tasks,
   members,
+  departments,
+  fields,
+  fieldValues,
   automations,
   sectionOf,
   onOpenTask,
@@ -2085,9 +2088,14 @@ export function BoardView({
     reorderTasks: (input) => reorderTasks.mutate(input),
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
+  const departmentOf = (id?: string | null) => departments.find((d) => d.id === id) ?? null;
   // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
   // um campo personalizado como status próprio.
   const columns = project.visible_columns ?? ["assignee", "due_date"];
+  const anyCustomPicked = columns.some((c) => c.startsWith("cf:"));
+  const visibleFields = anyCustomPicked ? fields.filter((f) => columns.includes(`cf:${f.id}`)) : fields;
+  const valueOf = (taskId: string, fieldId: string) =>
+    fieldValues.find((v) => v.task_id === taskId && v.field_id === fieldId)?.value ?? "";
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
 
   const unsectioned = tasks.filter((t) => !sectionOf(t) && !t.parent_task_id);
@@ -2220,6 +2228,9 @@ export function BoardView({
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-1">
+                        {columns.includes("start_date") && t.start_date && (
+                          <Pill tone="neutral">{shortDate(t.start_date)}</Pill>
+                        )}
                         {columns.includes("due_date") && t.due_date && (
                           <Pill tone={isLate(t) ? "danger" : "neutral"}>{shortDate(t.due_date)}</Pill>
                         )}
@@ -2230,6 +2241,18 @@ export function BoardView({
                         )}
                         {columns.includes("sprint") && t.sprint && <Pill tone="info">{t.sprint}</Pill>}
                         {columns.includes("tags") && t.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+                        {columns.includes("department") && departmentOf(t.department_id) && (
+                          <Pill>
+                            <span
+                              className={cn("size-1.5 rounded-full", dotClass(departmentOf(t.department_id)?.color))}
+                            />
+                            {departmentOf(t.department_id)?.name}
+                          </Pill>
+                        )}
+                        {visibleFields.map((f) => {
+                          const v = valueOf(t.id, f.id);
+                          return v ? <Pill key={f.id}>{v}</Pill> : null;
+                        })}
                         {subs.length > 0 && (
                           <Pill>
                             {subs.filter((s) => s.status === "concluido").length}/{subs.length} subtarefas
