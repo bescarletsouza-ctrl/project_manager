@@ -49,7 +49,7 @@ function DepartmentDetail() {
   const { departmentId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { departments, members, tasks, isLoading } = useWorkspaceData();
+  const { departments, members, projects, tasks, isLoading } = useWorkspaceData();
   const {
     sections: allSections,
     fields,
@@ -372,6 +372,7 @@ function DepartmentDetail() {
           deptTasks={deptTasks}
           orphanTasks={orphanTasks}
           members={members}
+          projects={projects}
           renamingSectionId={renaming}
           onRenameStart={(id) => setRenaming(id)}
           onRenameCommit={(id, name) => {
@@ -492,6 +493,8 @@ function DepartmentDetail() {
                       task={t}
                       assigneeName={members.find((m) => m.id === t.assignee_id)?.name}
                       assigneeColor={members.find((m) => m.id === t.assignee_id)?.avatar_color}
+                      projectName={projects.find((p) => p.id === t.project_id)?.name}
+                      projectColor={projects.find((p) => p.id === t.project_id)?.color}
                       dragging={dragTaskId === t.id}
                       onDragStart={() => setDragTaskId(t.id)}
                       onDragEnd={() => {
@@ -653,6 +656,8 @@ function TaskCard({
   task,
   assigneeName,
   assigneeColor,
+  projectName,
+  projectColor,
   dragging,
   onDragStart,
   onDragEnd,
@@ -663,6 +668,8 @@ function TaskCard({
   task: Task;
   assigneeName: string | undefined;
   assigneeColor: string | undefined;
+  projectName: string | undefined;
+  projectColor: string | undefined;
   dragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -761,7 +768,26 @@ function TaskCard({
             {task.title}
           </span>
         </div>
+        {/*
+          Todas as pills que a tarefa ativou aparecem — mesmo padrão do
+          Quadro do projeto, mas sem depender de visible_columns (o
+          departamento não tem essa preferência). Cada campo só rende se
+          tem valor; assim o card fica enxuto quando poucos campos estão
+          preenchidos. Projeto vinculado ganha um pill próprio para o
+          usuário ver de onde a demanda veio sem precisar abrir.
+        */}
         <div className="flex flex-wrap items-center gap-1">
+          {projectName && (
+            <Pill tone="brand">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  projectColor ? dotClass(projectColor) : "bg-current",
+                )}
+              />
+              {projectName}
+            </Pill>
+          )}
           {task.due_date && (
             <Pill tone={isLate(task) ? "danger" : "neutral"}>{shortDate(task.due_date)}</Pill>
           )}
@@ -771,6 +797,11 @@ function TaskCard({
             {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
           </Pill>
           <StatusBadge status={task.status} />
+          {task.sprint && <Pill tone="info">{task.sprint}</Pill>}
+          {task.task_type && <Pill>{task.task_type}</Pill>}
+          {task.tags?.map((tag) => (
+            <Pill key={tag}>{tag}</Pill>
+          ))}
           <span className="ml-auto">
             <Avatar name={assigneeName} color={assigneeColor} />
           </span>
@@ -893,6 +924,7 @@ function ListPanel({
   deptTasks,
   orphanTasks,
   members,
+  projects,
   renamingSectionId,
   onRenameStart,
   onRenameCommit,
@@ -918,6 +950,8 @@ function ListPanel({
   deptTasks: Task[];
   orphanTasks: Task[];
   members: { id: string; name: string; avatar_color: string }[];
+  /** Só o suficiente para exibir o pill do projeto de cada tarefa. */
+  projects: { id: string; name: string; color: string }[];
   renamingSectionId: string | null;
   onRenameStart: (id: string) => void;
   onRenameCommit: (id: string, name: string) => void;
@@ -1011,13 +1045,14 @@ function ListPanel({
                 )}
                 {list.map((t) => {
                   const assignee = members.find((m) => m.id === t.assignee_id);
+                  const project = projects.find((p) => p.id === t.project_id);
                   const done = t.status === "concluido";
                   return (
                     <button
                       key={t.id}
                       type="button"
                       onClick={() => onOpenTask(t)}
-                      className="flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-secondary/50"
+                      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-left transition-colors hover:bg-secondary/50"
                     >
                       <span
                         className={cn(
@@ -1027,27 +1062,42 @@ function ListPanel({
                       >
                         {done && <Check className="size-2.5" strokeWidth={3} />}
                       </span>
-                      <span className={cn("flex-1 truncate text-sm", done && "text-muted-foreground line-through")}>
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-sm",
+                          done && "text-muted-foreground line-through",
+                        )}
+                      >
                         {t.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
                         {t.title}
                       </span>
-                      <span className="hidden sm:block">
-                        <Pill
-                          tone={
-                            t.priority === "urgente"
-                              ? "danger"
-                              : t.priority === "alta"
-                                ? "warning"
-                                : "neutral"
-                          }
-                        >
-                          {PRIORITY_LABEL[t.priority as Priority] ?? t.priority}
+                      {/* Mesmo conjunto de pills do card do Quadro — quem
+                          tem valor rende, quem não tem some. Projeto vem
+                          primeiro para dar contexto na linha. */}
+                      {project && (
+                        <Pill tone="brand">
+                          <span className={cn("size-1.5 rounded-full", dotClass(project.color))} />
+                          {project.name}
                         </Pill>
-                      </span>
-                      <span className="hidden md:block">
-                        <StatusBadge status={t.status} />
-                      </span>
-                      <span className="hidden lg:block w-24 truncate text-xs text-muted-foreground">
+                      )}
+                      <Pill
+                        tone={
+                          t.priority === "urgente"
+                            ? "danger"
+                            : t.priority === "alta"
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
+                        {PRIORITY_LABEL[t.priority as Priority] ?? t.priority}
+                      </Pill>
+                      <StatusBadge status={t.status} />
+                      {t.sprint && <Pill tone="info">{t.sprint}</Pill>}
+                      {t.task_type && <Pill>{t.task_type}</Pill>}
+                      {t.tags?.map((tag) => (
+                        <Pill key={tag}>{tag}</Pill>
+                      ))}
+                      <span className="w-20 shrink-0 truncate text-right text-xs text-muted-foreground">
                         {t.due_date ? shortDate(t.due_date) : "—"}
                       </span>
                       <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
