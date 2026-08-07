@@ -323,6 +323,32 @@ export const createNotifications = (
   }>,
 ) => (rows.length ? run(table("notifications").insert(rows as never)) : Promise.resolve());
 
+/**
+ * Notifica a pessoa designada — chamado depois de QUALQUER caminho que muda
+ * assignee_id (Lista, Card, menu de contexto, atribuição em lote, criação
+ * já atribuída), não só o TaskPane. Sem isso, só quem recebia a tarefa pelo
+ * painel de detalhe era avisado; atribuir pela grade ficava mudo.
+ */
+export const notifyAssignment = (
+  task: { id: string; title: string; project_id: string | null; assignee_id?: string | null },
+  nextAssigneeId: string | null,
+  actorMemberId: string | null,
+) => {
+  if (!nextAssigneeId || nextAssigneeId === task.assignee_id || nextAssigneeId === actorMemberId) {
+    return Promise.resolve();
+  }
+  return createNotifications([
+    {
+      member_id: nextAssigneeId,
+      kind: "atribuicao",
+      title: `Você foi designado para "${task.title}"`,
+      task_id: task.id,
+      project_id: task.project_id,
+      actor_member_id: actorMemberId,
+    },
+  ]);
+};
+
 export const markNotificationRead = (id: string) =>
   run(table("notifications").update({ read_at: new Date().toISOString() } as never).eq("id", id));
 

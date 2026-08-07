@@ -27,6 +27,7 @@ import {
   createSection,
   createTaskLinked,
   deleteSection,
+  notifyAssignment,
   updateSection,
   type Automation,
 } from "@/lib/asana";
@@ -544,6 +545,7 @@ function DepartmentDetail() {
             setDragSectionId(null);
             setOverSectionId(null);
           }}
+          currentMemberId={currentMember?.id ?? null}
         />
       ) : boardSections.length === 0 ? (
         <EmptyState
@@ -648,6 +650,7 @@ function DepartmentDetail() {
                       automations={automations}
                       departmentId={departmentId}
                       columnPrefs={columnPrefs}
+                      currentMemberId={currentMember?.id ?? null}
                     />
                   ))}
                 </div>
@@ -808,6 +811,7 @@ function TaskCard({
   automations,
   departmentId,
   columnPrefs,
+  currentMemberId,
 }: {
   task: Task;
   members: Member[];
@@ -826,12 +830,18 @@ function TaskCard({
    */
   automations: Automation[];
   departmentId: string;
+  currentMemberId: string | null;
 }) {
   const invalidateTask = useInvalidate(["tasks"]);
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto: grava sem passar pelas automações (só status/assignee do toggle rodam automação). */
   const fieldPatch = useMutation({
-    mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
+    mutationFn: async (patch: Partial<Task>) => {
+      await updateTask(task.id, patch);
+      if ("assignee_id" in patch) {
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+      }
+    },
     onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível salvar."),
   });
@@ -1175,6 +1185,7 @@ function ListPanel({
   onSectionDragEnd,
   onSectionOver,
   onSectionDrop,
+  currentMemberId,
 }: {
   boardSections: {
     id: string;
@@ -1215,6 +1226,7 @@ function ListPanel({
   onSectionDragEnd: () => void;
   onSectionOver: (id: string) => void;
   onSectionDrop: (targetId: string) => void;
+  currentMemberId: string | null;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -1312,6 +1324,7 @@ function ListPanel({
                     onDragEnd={onTaskDragEnd}
                     onOpen={() => onOpenTask(t)}
                     columnPrefs={columnPrefs}
+                    currentMemberId={currentMemberId}
                   />
                 ))}
                 <div className="pt-1">
@@ -1390,6 +1403,7 @@ function TaskRow({
   onDragEnd,
   onOpen,
   columnPrefs,
+  currentMemberId,
 }: {
   task: Task;
   members: Member[];
@@ -1401,6 +1415,7 @@ function TaskRow({
   onDragEnd: () => void;
   onOpen: () => void;
   columnPrefs: ColumnPrefs;
+  currentMemberId: string | null;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const done = task.status === "concluido";
@@ -1409,7 +1424,12 @@ function TaskRow({
 
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto. */
   const fieldPatch = useMutation({
-    mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
+    mutationFn: async (patch: Partial<Task>) => {
+      await updateTask(task.id, patch);
+      if ("assignee_id" in patch) {
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+      }
+    },
     onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível salvar."),
   });

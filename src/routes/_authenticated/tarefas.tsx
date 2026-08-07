@@ -7,6 +7,8 @@ import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import { DeadlinePill } from "@/components/project/ProjectViews";
+import { notifyAssignment } from "@/lib/asana";
+import { useCurrentMember } from "@/lib/useAsana";
 import {
   COMPLEXITY_OPTIONS,
   PRIORITIES,
@@ -41,6 +43,7 @@ export const Route = createFileRoute("/_authenticated/tarefas")({
 
 function TasksPage() {
   const { tasks, projects, members, departments, clients, events, isLoading } = useWorkspaceData();
+  const { member: currentMember } = useCurrentMember();
   // Status muda dispara trigger de histórico (task_status_history) — inclui
   // status_events no escopo.
   const invalidateStatus = useInvalidate(["tasks", "status_events"]);
@@ -220,6 +223,7 @@ function TasksPage() {
           members={members}
           projects={projects}
           onStatus={(status) => move.mutate({ id: selected.id, status })}
+          currentMemberId={currentMember?.id ?? null}
         />
       )}
 
@@ -230,6 +234,7 @@ function TasksPage() {
           members={members}
           departments={departments}
           clients={clients}
+          currentMemberId={currentMember?.id ?? null}
           onCreated={() => {
             invalidateTask();
             setCreating(false);
@@ -274,6 +279,7 @@ function TaskDrawer({
   members,
   projects,
   onStatus,
+  currentMemberId,
 }: {
   task: Task;
   onClose: () => void;
@@ -281,6 +287,7 @@ function TaskDrawer({
   members: { id: string; name: string }[];
   projects: { id: string; name: string }[];
   onStatus: (status: string) => void;
+  currentMemberId: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const perStatus = timeInStatus(events, task);
@@ -371,7 +378,15 @@ function TaskDrawer({
           </ol>
         </div>
       </div>
-      {editing && <TaskEditDialog task={task} members={members} onClose={() => setEditing(false)} onDeleted={onClose} />}
+      {editing && (
+        <TaskEditDialog
+          task={task}
+          members={members}
+          onClose={() => setEditing(false)}
+          onDeleted={onClose}
+          currentMemberId={currentMemberId}
+        />
+      )}
     </div>
   );
 }
@@ -401,6 +416,7 @@ function NewTaskDialog({
   members,
   departments,
   clients,
+  currentMemberId,
 }: {
   onClose: () => void;
   onCreated: () => void;
@@ -408,6 +424,7 @@ function NewTaskDialog({
   members: { id: string; name: string }[];
   departments: { id: string; name: string }[];
   clients: { id: string; name: string }[];
+  currentMemberId: string | null;
 }) {
   const [form, setForm] = useState({
     title: "",
@@ -431,7 +448,12 @@ function NewTaskDialog({
     }
     setSaving(true);
     try {
-      await createTask({ ...form, due_date: form.due_date || null });
+      const taskId = await createTask({ ...form, due_date: form.due_date || null });
+      await notifyAssignment(
+        { id: taskId, title: form.title.trim(), project_id: form.project_id || null },
+        form.assignee_id || null,
+        currentMemberId,
+      );
       toast.success("Tarefa criada.");
       onCreated();
     } catch {

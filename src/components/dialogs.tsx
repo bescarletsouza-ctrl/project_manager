@@ -11,7 +11,14 @@ import {
   projectsQuery,
 } from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
-import { createPortfolio, createSection, createTaskLinked, portfoliosQuery, sectionsQuery } from "@/lib/asana";
+import {
+  createPortfolio,
+  createSection,
+  createTaskLinked,
+  notifyAssignment,
+  portfoliosQuery,
+  sectionsQuery,
+} from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { COLOR_KEYS, dotClass } from "@/lib/colors";
 import { PRIORITIES, PRIORITY_LABEL, PROJECT_STATUS, PROJECT_STATUS_LABEL } from "@/lib/domain";
@@ -60,9 +67,10 @@ export function NewTaskDialog({
           ? sections.filter((s) => s.department_id === form.department_id)
           : [];
       const sectionId = containerSections[0]?.id ?? null;
-      await createTaskLinked(
+      const title = form.title.trim();
+      const taskId = await createTaskLinked(
         {
-          title: form.title.trim(),
+          title,
           project_id: form.project_id || null,
           department_id: form.department_id || null,
           section_id: sectionId,
@@ -72,6 +80,11 @@ export function NewTaskDialog({
           status: "a_fazer",
         },
         form.project_id ? [form.project_id] : [],
+      );
+      await notifyAssignment(
+        { id: taskId, title, project_id: form.project_id || null },
+        form.assignee_id || null,
+        member?.id ?? null,
       );
     },
     onSuccess: () => {

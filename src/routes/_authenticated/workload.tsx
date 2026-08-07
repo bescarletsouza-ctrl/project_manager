@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { Bar, Pill, SectionTitle } from "@/components/ui-bits";
 import { useInvalidate, useWorkspaceData, nameById, initials } from "@/lib/useData";
 import { updateTask } from "@/lib/data";
+import { notifyAssignment } from "@/lib/asana";
+import { useCurrentMember } from "@/lib/useAsana";
 import { isOpen, isLate, personMetrics, PRIORITY_LABEL } from "@/lib/domain";
 import { requireRole } from "@/lib/access";
 
@@ -26,11 +28,15 @@ export const Route = createFileRoute("/_authenticated/workload")({
 
 function WorkloadPage() {
   const { members, tasks, departments, isLoading } = useWorkspaceData();
+  const { member: currentMember } = useCurrentMember();
   const invalidateTask = useInvalidate(["tasks"]);
 
   const reassign = useMutation({
-    mutationFn: ({ id, assignee_id }: { id: string; assignee_id: string }) =>
-      updateTask(id, { assignee_id }),
+    mutationFn: async ({ id, assignee_id }: { id: string; assignee_id: string }) => {
+      await updateTask(id, { assignee_id });
+      const task = tasks.find((t) => t.id === id);
+      if (task) await notifyAssignment(task, assignee_id, currentMember?.id ?? null);
+    },
     onSuccess: () => {
       invalidateTask();
       toast.success("Tarefa redistribuída.");

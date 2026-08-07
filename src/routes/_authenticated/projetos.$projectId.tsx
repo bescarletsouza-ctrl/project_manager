@@ -348,6 +348,7 @@ function ProjectDetail() {
     automations,
     sectionOf,
     onOpenTask: (t: Task) => setOpenTask(t),
+    currentMemberId: currentMember?.id ?? null,
   };
 
   const showToolbar = view === "list" || view === "board" || view === "calendar" || view === "timeline";

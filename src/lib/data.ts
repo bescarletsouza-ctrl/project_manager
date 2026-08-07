@@ -71,9 +71,10 @@ export async function updateTask(id: string, patch: Record<string, unknown>) {
   if (error) throw error;
 }
 
-export async function createTask(payload: Record<string, unknown>) {
-  const { error } = await supabase.from("tasks" as never).insert(payload as never);
+export async function createTask(payload: Record<string, unknown>): Promise<string> {
+  const { data, error } = await supabase.from("tasks" as never).insert(payload as never).select("id").single();
   if (error) throw error;
+  return (data as { id: string }).id;
 }
 
 export async function deleteTask(id: string) {

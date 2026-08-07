@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SectionTitle } from "@/components/ui-bits";
 import { updateTask, deleteTask } from "@/lib/data";
+import { notifyAssignment } from "@/lib/asana";
 import { PRIORITIES, PRIORITY_LABEL, type Task } from "@/lib/domain";
 import { useInvalidate } from "@/lib/useData";
 
@@ -11,11 +12,13 @@ export function TaskEditDialog({
   members,
   onClose,
   onDeleted,
+  currentMemberId = null,
 }: {
   task: Task;
   members: { id: string; name: string }[];
   onClose: () => void;
   onDeleted?: () => void;
+  currentMemberId?: string | null;
 }) {
   const invalidateTask = useInvalidate(["tasks"]);
   const [form, setForm] = useState({
@@ -27,14 +30,16 @@ export function TaskEditDialog({
   });
 
   const save = useMutation({
-    mutationFn: () =>
-      updateTask(task.id, {
+    mutationFn: async () => {
+      await updateTask(task.id, {
         title: form.title.trim(),
         description: form.description,
         assignee_id: form.assignee_id || null,
         priority: form.priority,
         due_date: form.due_date || null,
-      }),
+      });
+      await notifyAssignment(task, form.assignee_id || null, currentMemberId);
+    },
     onSuccess: () => {
       invalidateTask();
       toast.success("Tarefa atualizada.");

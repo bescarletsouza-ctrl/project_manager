@@ -42,6 +42,7 @@ import {
   createSection,
   createTaskLinked,
   deleteSection,
+  notifyAssignment,
   setFieldValue,
   setTaskProjectSection,
   updateSection,
@@ -85,6 +86,8 @@ export type ViewProps = {
   automations: Automation[];
   sectionOf: (task: Task) => string;
   onOpenTask: (task: Task) => void;
+  /** Quem está logado — só para notificar a pessoa designada ao atribuir (não notifica a si mesmo). */
+  currentMemberId: string | null;
 };
 
 /* ------------------------- utilidades ------------------------- */
@@ -818,7 +821,12 @@ function TaskHeader({
 
 /* ---------- edição inline das colunas (fora da tarefa) ---------- */
 
-function useTaskPatch(task: Task, automations: Automation[] = [], allSections: Section[] = []) {
+function useTaskPatch(
+  task: Task,
+  automations: Automation[] = [],
+  allSections: Section[] = [],
+  currentMemberId: string | null = null,
+) {
   // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
   // mas o de seção pode rodar automação (task_projects/task_field_values/
   // notifications) — usar o superset evita invalidação incompleta.
@@ -833,6 +841,9 @@ function useTaskPatch(task: Task, automations: Automation[] = [], allSections: S
         return;
       }
       await updateTask(task.id, patch);
+      if ("assignee_id" in patch) {
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+      }
     },
     onSuccess: () => invalidate(),
     onError: (e: unknown) =>
@@ -1123,6 +1134,7 @@ function TaskCells({
   allSections,
   automations,
   cols,
+  currentMemberId,
 }: {
   task: Task;
   columns: string[];
@@ -1131,8 +1143,9 @@ function TaskCells({
   allSections: Section[];
   automations: Automation[];
   cols: ColumnWidths;
+  currentMemberId: string | null;
 }) {
-  const patch = useTaskPatch(task, automations, allSections);
+  const patch = useTaskPatch(task, automations, allSections, currentMemberId);
   const has = (id: string) => columns.includes(id);
   /** Mesma mescla do TaskPane: seções do projeto E do departamento da tarefa. */
   const taskSections = allSections.filter(
@@ -1350,7 +1363,7 @@ function SectionHeader({
  * recebeu — "selecionar tudo" e a contagem trabalham sobre ela, não sobre o
  * projeto inteiro.
  */
-function useTaskSelection(tasks: Task[], projectId: string) {
+function useTaskSelection(tasks: Task[], projectId: string, currentMemberId: string | null = null) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const allIds = tasks.map((t) => t.id);
@@ -1390,7 +1403,16 @@ function useTaskSelection(tasks: Task[], projectId: string) {
 
   /** Responsável, prioridade ou prazo em lote — mesmo patch para todas as selecionadas. */
   const bulkPatch = useMutation({
-    mutationFn: (patch: Partial<Task>) => Promise.all([...selected].map((id) => updateTask(id, patch))),
+    mutationFn: (patch: Partial<Task>) =>
+      Promise.all(
+        [...selected].map(async (id) => {
+          await updateTask(id, patch);
+          if ("assignee_id" in patch) {
+            const t = tasks.find((x) => x.id === id);
+            if (t) await notifyAssignment(t, patch.assignee_id ?? null, currentMemberId);
+          }
+        }),
+      ),
     onSuccess: () => {
       invalidateTask();
       toast.success("Tarefas atualizadas.");
@@ -1485,6 +1507,7 @@ function TaskContextMenu({
   automations,
   onOpen,
   children,
+  currentMemberId = null,
 }: {
   task: Task;
   members: Member[];
@@ -1493,6 +1516,7 @@ function TaskContextMenu({
   automations: Automation[];
   onOpen: () => void;
   children: React.ReactNode;
+  currentMemberId?: string | null;
 }) {
   const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const invalidateTask = useInvalidate(["tasks"]);
@@ -1505,6 +1529,9 @@ function TaskContextMenu({
         return;
       }
       await updateTask(task.id, input);
+      if ("assignee_id" in input) {
+        await notifyAssignment(task, input.assignee_id ?? null, currentMemberId);
+      }
     },
     onSuccess: () => invalidatePatch(),
     onError: () => toast.error("Não foi possível atualizar a tarefa."),
@@ -1760,6 +1787,7 @@ export function ListView({
   automations,
   sectionOf,
   onOpenTask,
+  currentMemberId,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations, tasks, allSections);
@@ -1790,7 +1818,7 @@ export function ListView({
     bulkMove,
     bulkPatch,
     bulkDelete,
-  } = useTaskSelection(tasks, projectId);
+  } = useTaskSelection(tasks, projectId, currentMemberId);
 
   // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
   // um campo personalizado como status próprio.
@@ -1986,6 +2014,7 @@ export function ListView({
                           allSections={allSections}
                           automations={automations}
                           onOpen={() => onOpenTask(t)}
+                          currentMemberId={currentMemberId}
                         >
                         <div
                           draggable
@@ -2068,7 +2097,7 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} />
+                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -2083,6 +2112,7 @@ export function ListView({
                               allSections={allSections}
                               automations={automations}
                               onOpen={() => onOpenTask(s)}
+                              currentMemberId={currentMemberId}
                             >
                             <div
                               className="group flex items-center gap-2 border-t border-border/60 bg-secondary/20 py-1.5 pr-3 pl-11"
@@ -2115,7 +2145,7 @@ export function ListView({
                               <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
                                 <DeadlinePill task={s} />
                               </span>
-                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} />
+                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>
@@ -2159,6 +2189,7 @@ export function BoardView({
   automations,
   sectionOf,
   onOpenTask,
+  currentMemberId,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations, tasks, allSections);
@@ -2287,6 +2318,7 @@ export function BoardView({
                       allSections={allSections}
                       automations={automations}
                       onOpen={() => onOpenTask(t)}
+                      currentMemberId={currentMemberId}
                     >
                     <div
                       role="button"

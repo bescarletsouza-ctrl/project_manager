@@ -29,6 +29,7 @@ import {
   deleteTaskAttachment,
   getAttachmentUrl,
   linkTaskToProject,
+  notifyAssignment,
   updateComment,
   uploadTaskAttachment,
   removeDependency,
@@ -187,18 +188,7 @@ export function TaskPane({
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra });
         await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
-        if (next && next !== task.assignee_id) {
-          await createNotifications([
-            {
-              member_id: next,
-              kind: "atribuicao",
-              title: `Você foi designado para "${task.title}"`,
-              task_id: task.id,
-              project_id: task.project_id,
-              actor_member_id: currentMember?.id ?? null,
-            },
-          ]);
-        }
+        await notifyAssignment(task, next, currentMember?.id ?? null);
         return;
       }
 
