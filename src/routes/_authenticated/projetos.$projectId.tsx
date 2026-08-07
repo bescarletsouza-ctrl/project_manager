@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -55,35 +55,35 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/projetos/$projectId")({
   head: () => ({
     meta: [
-      { title: "Projeto â€” Lista, Quadro, Timeline e CalendÃ¡rio â€” Fluxo" },
+      { title: "Projeto — Lista, Quadro, Timeline e Calendário — Fluxo" },
       {
         name: "description",
         content:
-          "Gerencie o projeto em Lista, Quadro, Timeline ou CalendÃ¡rio, com seÃ§Ãµes, subtarefas, dependÃªncias, marcos, colunas configurÃ¡veis e automaÃ§Ãµes.",
+          "Gerencie o projeto em Lista, Quadro, Timeline ou Calendário, com seções, subtarefas, dependências, marcos, colunas configuráveis e automações.",
       },
-      { property: "og:title", content: "Projeto â€” Fluxo" },
-      { property: "og:description", content: "Colunas configurÃ¡veis, automaÃ§Ãµes, dependÃªncias e campos personalizados." },
+      { property: "og:title", content: "Projeto — Fluxo" },
+      { property: "og:description", content: "Colunas configuráveis, automações, dependências e campos personalizados." },
     ],
   }),
   component: ProjectDetail,
 });
 
 const VIEWS = [
-  { id: "overview", label: "VisÃ£o geral", icon: LayoutGrid },
+  { id: "overview", label: "Visão geral", icon: LayoutGrid },
   { id: "list", label: "Lista", icon: List },
   { id: "board", label: "Quadro", icon: Columns3 },
   { id: "timeline", label: "Timeline", icon: GanttChartSquare },
-  { id: "calendar", label: "CalendÃ¡rio", icon: CalendarDays },
+  { id: "calendar", label: "Calendário", icon: CalendarDays },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"] | "cols" | "config" | "auto";
 type ViewTabId = (typeof VIEWS)[number]["id"];
 
 /**
- * Ordem das abas de visualizaÃ§Ã£o. Fica no localStorage por projeto â€” cada
+ * Ordem das abas de visualização. Fica no localStorage por projeto — cada
  * pessoa arruma como prefere. Se a ordem salva estiver desatualizada (aba
- * removida ou adicionada em versÃ£o nova do app), completa com o restante na
- * ordem canÃ´nica sem descartar a preferÃªncia da pessoa.
+ * removida ou adicionada em versão nova do app), completa com o restante na
+ * ordem canônica sem descartar a preferência da pessoa.
  */
 function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) => void] {
   const storageKey = `fluxo:view-order:${projectId}`;
@@ -105,7 +105,7 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
     } catch {
       setOrder(canonical);
     }
-    // canonical Ã© derivado de VIEWS (constante do mÃ³dulo), nÃ£o muda entre renders
+    // canonical é derivado de VIEWS (constante do módulo), não muda entre renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
@@ -114,7 +114,7 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
     } catch {
-      /* modo privado ou cota cheia: sÃ³ afeta esta sessÃ£o */
+      /* modo privado ou cota cheia: só afeta esta sessão */
     }
   };
 
@@ -123,13 +123,13 @@ function useViewTabOrder(projectId: string): [ViewTabId[], (order: ViewTabId[]) 
 
 const PANELS: { id: ViewId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "cols", label: "Colunas e campos", icon: Table2 },
-  { id: "auto", label: "AutomaÃ§Ãµes", icon: Zap },
-  { id: "config", label: "ConfiguraÃ§Ã£o", icon: Settings2 },
+  { id: "auto", label: "Automações", icon: Zap },
+  { id: "config", label: "Configuração", icon: Settings2 },
 ];
 
 /**
- * Nome do projeto editÃ¡vel direto no cabeÃ§alho â€” sem abrir "Editar projeto".
- * Manda sÃ³ {name} no patch (as outras configuraÃ§Ãµes nÃ£o sÃ£o tocadas).
+ * Nome do projeto editável direto no cabeçalho — sem abrir "Editar projeto".
+ * Manda só {name} no patch (as outras configurações não são tocadas).
  */
 function EditableProjectName({ project, canEdit }: { project: Project; canEdit: boolean }) {
   const qc = useQueryClient();
@@ -143,7 +143,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
       setEditing(false);
     },
     onError: () => {
-      toast.error("NÃ£o foi possÃ­vel renomear o projeto.");
+      toast.error("Não foi possível renomear o projeto.");
       setEditing(false);
     },
   });
@@ -152,7 +152,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
     if (save.isPending) return;
     const trimmed = value.trim();
     if (!trimmed) {
-      toast.error("O nome do projeto nÃ£o pode ficar vazio.");
+      toast.error("O nome do projeto não pode ficar vazio.");
       setValue(project.name);
       setEditing(false);
       return;
@@ -197,7 +197,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
           }}
           className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-xl font-semibold tracking-tight outline-none disabled:opacity-60"
         />
-        {save.isPending && <span className="shrink-0 text-xs text-muted-foreground">Salvandoâ€¦</span>}
+        {save.isPending && <span className="shrink-0 text-xs text-muted-foreground">Salvando…</span>}
       </div>
     );
   }
@@ -242,10 +242,10 @@ function ProjectDetail() {
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
       qc.invalidateQueries();
-      toast.success("Projeto excluÃ­do.");
+      toast.success("Projeto excluído.");
       navigate({ to: "/projetos" });
     },
-    onError: () => toast.error("NÃ£o foi possÃ­vel excluir o projeto."),
+    onError: () => toast.error("Não foi possível excluir o projeto."),
   });
 
   const duplicate = useMutation({
@@ -253,12 +253,12 @@ function ProjectDetail() {
     onSuccess: (newId) => {
       qc.invalidateQueries();
       toast.success("Projeto duplicado.");
-      // A duplicaÃ§Ã£o jÃ¡ apaga cÃ³pia parcial em caso de erro (ver duplicateProject),
-      // entÃ£o aqui podemos navegar direto sem risco de mandar o usuÃ¡rio para um ID quebrado.
+      // A duplicação já apaga cópia parcial em caso de erro (ver duplicateProject),
+      // então aqui podemos navegar direto sem risco de mandar o usuário para um ID quebrado.
       navigate({ to: "/projetos/$projectId", params: { projectId: newId } });
     },
     onError: (e: unknown) =>
-      toast.error(`NÃ£o foi possÃ­vel duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
+      toast.error(`Não foi possível duplicar: ${(e as { message?: string })?.message ?? "erro"}`),
   });
 
   const project = projects.find((p) => p.id === projectId);
@@ -285,8 +285,8 @@ function ProjectDetail() {
   if (!project) {
     return (
       <EmptyState
-        title="Projeto nÃ£o encontrado"
-        description="Ele pode ter sido excluÃ­do ou vocÃª nÃ£o tem acesso."
+        title="Projeto não encontrado"
+        description="Ele pode ter sido excluído ou você não tem acesso."
         action={
           <Link to="/projetos" className="btn btn-outline">
             Voltar para projetos
@@ -303,7 +303,7 @@ function ProjectDetail() {
     const link = links.find((l) => l.task_id === t.id);
     if (link?.section_id && projectSectionIds.has(link.section_id)) return link.section_id;
     if (t.section_id && projectSectionIds.has(t.section_id)) return t.section_id;
-    // tarefa de outro projeto (ou sem seÃ§Ã£o): entra na 1Âª seÃ§Ã£o do projeto
+    // tarefa de outro projeto (ou sem seção): entra na 1ª seção do projeto
     return firstSectionId;
   };
 
@@ -333,7 +333,7 @@ function ProjectDetail() {
 
   return (
     <div className="space-y-4">
-      {/* cabeÃ§alho */}
+      {/* cabeçalho */}
       <div className="space-y-3">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Link to="/projetos" className="hover:text-foreground hover:underline">
@@ -365,8 +365,8 @@ function ProjectDetail() {
           <div className="min-w-0 flex-1">
             <EditableProjectName project={project} canEdit={hasAccess} />
             <p className="text-xs text-muted-foreground">
-              {health.done} de {health.total} tarefas Â· {health.progress}% concluÃ­do
-              {project.due_date ? ` Â· entrega ${new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
+              {health.done} de {health.total} tarefas · {health.progress}% concluído
+              {project.due_date ? ` · entrega ${new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
             </p>
           </div>
           <Pill tone={health.score >= 75 ? "success" : health.score >= 50 ? "warning" : "danger"}>{health.health}</Pill>
@@ -385,14 +385,14 @@ function ProjectDetail() {
                 ...(hasAccess
                   ? [
                       {
-                        label: duplicate.isPending ? "Duplicandoâ€¦" : "Duplicar projeto",
+                        label: duplicate.isPending ? "Duplicando…" : "Duplicar projeto",
                         icon: Copy,
                         separatorBefore: true,
                         onSelect: () => {
                           if (duplicate.isPending) return;
                           if (
                             confirm(
-                              `Duplicar "${project.name}"? A cÃ³pia leva tarefas, subtarefas, campos personalizados e configuraÃ§Ãµes; comentÃ¡rios e histÃ³rico nÃ£o sÃ£o copiados.`,
+                              `Duplicar "${project.name}"? A cópia leva tarefas, subtarefas, campos personalizados e configurações; comentários e histórico não são copiados.`,
                             )
                           ) {
                             duplicate.mutate();
@@ -419,7 +419,7 @@ function ProjectDetail() {
         </div>
       </div>
 
-      {/* abas â€” arraste para reordenar; a preferÃªncia fica por projeto no navegador */}
+      {/* abas — arraste para reordenar; a preferência fica por projeto no navegador */}
       <nav className="flex items-center gap-1 overflow-x-auto border-b border-border">
         {orderedViews.map((v) => (
           <button
@@ -480,12 +480,12 @@ function ProjectDetail() {
             />
           </div>
           <select
-            aria-label="Filtrar por responsÃ¡vel"
+            aria-label="Filtrar por responsável"
             value={filters.assignee}
             onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
             className="field h-8 w-auto"
           >
-            <option value="">Todos os responsÃ¡veis</option>
+            <option value="">Todos os responsáveis</option>
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -511,7 +511,7 @@ function ProjectDetail() {
               checked={filters.hideDone}
               onChange={(e) => setFilters({ ...filters, hideDone: e.target.checked })}
             />
-            Ocultar concluÃ­das
+            Ocultar concluídas
           </label>
           {filtersOn && (
             <button
@@ -534,10 +534,10 @@ function ProjectDetail() {
       {view === "board" && <BoardView {...viewProps} />}
       {view === "timeline" && <TimelineView {...viewProps} dependencies={dependencies} />}
       {view === "calendar" && <CalendarView {...viewProps} />}
-      {/* Colunas, configuraÃ§Ã£o e automaÃ§Ãµes mexem no projeto â€” quem nÃ£o tem
-          acesso a ele (RLS barra a escrita mesmo assim) nem vÃª a tela. */}
+      {/* Colunas, configuração e automações mexem no projeto — quem não tem
+          acesso a ele (RLS barra a escrita mesmo assim) nem vê a tela. */}
       {!hasAccess && (view === "cols" || view === "config" || view === "auto") ? (
-        <EmptyState title="Sem acesso a esta Ã¡rea" description="Fale com um administrador se precisar mexer aqui." />
+        <EmptyState title="Sem acesso a esta área" description="Fale com um administrador se precisar mexer aqui." />
       ) : (
         <>
           {view === "cols" && (
@@ -593,7 +593,7 @@ function ProjectDetail() {
   );
 }
 
-/* ---------------- visÃ£o geral ---------------- */
+/* ---------------- visão geral ---------------- */
 
 function OverviewPanel({
   project,
@@ -626,12 +626,12 @@ function OverviewPanel({
         <div className="card-surface space-y-2 p-4">
           <SectionTitle title="Sobre o projeto" />
           <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-            {project.description?.trim() || "Sem descriÃ§Ã£o ainda. Use â€œEditar projetoâ€ para contar o que ele entrega."}
+            {project.description?.trim() || "Sem descrição ainda. Use “Editar projeto” para contar o que ele entrega."}
           </p>
         </div>
 
         <div className="card-surface space-y-3 p-4">
-          <SectionTitle title="Progresso" description={`${health.done} de ${health.total} tarefas concluÃ­das`} />
+          <SectionTitle title="Progresso" description={`${health.done} de ${health.total} tarefas concluídas`} />
           <Bar value={health.progress} tone={health.score >= 75 ? "success" : health.score >= 50 ? "warning" : "danger"} />
           <div className="flex flex-wrap gap-1.5 pt-1">
             {byStatus.map((s) => (
@@ -646,7 +646,7 @@ function OverviewPanel({
 
         <div className="card-surface overflow-hidden">
           <div className="border-b border-border px-4 py-2.5">
-            <SectionTitle title="PrÃ³ximas entregas" />
+            <SectionTitle title="Próximas entregas" />
           </div>
           {upcoming.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground">Nenhuma tarefa aberta com prazo definido.</p>
@@ -686,12 +686,12 @@ function OverviewPanel({
               {PRIORITY_LABEL[project.priority as Priority] ?? project.priority}
             </MetaItem>
             <MetaItem label="Gestor">{nameById(members, project.manager_id)}</MetaItem>
-            <MetaItem label="SaÃºde">{health.health}</MetaItem>
-            <MetaItem label="InÃ­cio">
-              {project.start_date ? new Date(`${project.start_date}T12:00:00`).toLocaleDateString("pt-BR") : "â€”"}
+            <MetaItem label="Saúde">{health.health}</MetaItem>
+            <MetaItem label="Início">
+              {project.start_date ? new Date(`${project.start_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
             </MetaItem>
             <MetaItem label="Entrega">
-              {project.due_date ? new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "â€”"}
+              {project.due_date ? new Date(`${project.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
             </MetaItem>
           </div>
         </div>
@@ -711,7 +711,7 @@ function OverviewPanel({
                 </li>
               );
             })}
-            {team.length === 0 && <li className="text-sm text-muted-foreground">NinguÃ©m atribuÃ­do ainda.</li>}
+            {team.length === 0 && <li className="text-sm text-muted-foreground">Ninguém atribuído ainda.</li>}
           </ul>
         </div>
       </div>
@@ -719,7 +719,7 @@ function OverviewPanel({
   );
 }
 
-/* ---------------- configuraÃ§Ã£o do projeto ---------------- */
+/* ---------------- configuração do projeto ---------------- */
 
 function ProjectSettings({ project, members }: { project: Project; members: Member[] }) {
   const qc = useQueryClient();
@@ -736,25 +736,25 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
       }),
     onSuccess: () => {
       qc.invalidateQueries();
-      toast.success("ConfiguraÃ§Ã£o salva.");
+      toast.success("Configuração salva.");
     },
-    onError: () => toast.error("NÃ£o foi possÃ­vel salvar a configuraÃ§Ã£o."),
+    onError: () => toast.error("Não foi possível salvar a configuração."),
   });
 
   return (
     <div className="card-surface max-w-2xl space-y-4 p-4">
       <SectionTitle
-        title="PadrÃµes de novas tarefas"
-        description="Toda tarefa criada neste projeto jÃ¡ nasce com estes valores."
+        title="Padrões de novas tarefas"
+        description="Toda tarefa criada neste projeto já nasce com estes valores."
       />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="ResponsÃ¡vel padrÃ£o">
+        <Field label="Responsável padrão">
           <select
             className="field w-full"
             value={form.default_assignee_id}
             onChange={(e) => setForm({ ...form, default_assignee_id: e.target.value })}
           >
-            <option value="">Sem responsÃ¡vel</option>
+            <option value="">Sem responsável</option>
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -762,7 +762,7 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
             ))}
           </select>
         </Field>
-        <Field label="Prazo padrÃ£o (dias a partir de hoje)">
+        <Field label="Prazo padrão (dias a partir de hoje)">
           <input
             type="number"
             min={0}
@@ -776,14 +776,14 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
       </div>
       <div className="flex justify-end">
         <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
-          {save.isPending ? "Salvando..." : "Salvar configuraÃ§Ã£o"}
+          {save.isPending ? "Salvando..." : "Salvar configuração"}
         </button>
       </div>
     </div>
   );
 }
 
-/* ---------------- colunas (padrÃ£o + personalizadas) ---------------- */
+/* ---------------- colunas (padrão + personalizadas) ---------------- */
 
 function ColumnsPanel({
   project,
@@ -804,7 +804,7 @@ function ColumnsPanel({
       qc.invalidateQueries();
       toast.success("Colunas atualizadas.");
     },
-    onError: () => toast.error("NÃ£o foi possÃ­vel salvar as colunas."),
+    onError: () => toast.error("Não foi possível salvar as colunas."),
   });
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((c) => c !== id) : [...s, id]));
@@ -824,7 +824,7 @@ function ColumnsPanel({
 
   return (
     <div className="card-surface space-y-4 p-4">
-      <SectionTitle title="Colunas visÃ­veis" description="Escolha o que aparece na lista e no quadro." />
+      <SectionTitle title="Colunas visíveis" description="Escolha o que aparece na lista e no quadro." />
       <div className="flex flex-wrap gap-2">{TASK_COLUMNS.map((c) => chip(c.id, c.label))}</div>
 
       <div className="space-y-2 border-t border-border pt-4">
@@ -833,7 +833,7 @@ function ColumnsPanel({
           description="Campos personalizados deste projeto exibidos como colunas."
         />
         {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Nenhuma coluna personalizada ainda â€” crie uma abaixo.</p>
+          <p className="text-xs text-muted-foreground">Nenhuma coluna personalizada ainda — crie uma abaixo.</p>
         ) : (
           <div className="flex flex-wrap gap-2">{fields.map((f) => chip(`cf:${f.id}`, f.name))}</div>
         )}
@@ -877,7 +877,7 @@ function CustomFieldsPanel({
       qc.invalidateQueries();
       toast.success("Campo criado.");
     },
-    onError: () => toast.error("NÃ£o foi possÃ­vel criar o campo."),
+    onError: () => toast.error("Não foi possível criar o campo."),
   });
 
   const remove = useMutation({
@@ -932,7 +932,7 @@ function CustomFieldsPanel({
           ))}
         </select>
         <input
-          placeholder="OpÃ§Ãµes (separadas por vÃ­rgula)"
+          placeholder="Opções (separadas por vírgula)"
           value={form.options}
           onChange={(e) => setForm({ ...form, options: e.target.value })}
           disabled={form.field_type !== "select"}
@@ -990,7 +990,7 @@ function EditProject({
       toast.success("Projeto atualizado.");
       onClose();
     },
-    onError: () => toast.error("NÃ£o foi possÃ­vel salvar."),
+    onError: () => toast.error("Não foi possível salvar."),
   });
 
   return (
@@ -1023,7 +1023,7 @@ function EditProject({
           className="field w-full"
         />
       </Field>
-      <Field label="DescriÃ§Ã£o">
+      <Field label="Descrição">
         <textarea
           value={form.description}
           maxLength={1000}
@@ -1049,13 +1049,13 @@ function EditProject({
         </div>
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="PortfÃ³lio">
+        <Field label="Portfólio">
           <select
             className="field w-full"
             value={form.portfolio_id}
             onChange={(e) => setForm({ ...form, portfolio_id: e.target.value })}
           >
-            <option value="">Sem portfÃ³lio</option>
+            <option value="">Sem portfólio</option>
             {portfolios.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -1099,7 +1099,7 @@ function EditProject({
             ))}
           </select>
         </Field>
-        <Field label="InÃ­cio">
+        <Field label="Início">
           <input
             type="date"
             className="field w-full"

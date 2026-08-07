@@ -151,11 +151,11 @@ export function TaskPane({
           automations,
           "status_changed",
           { ...task, status: next },
-          { projectId: task.project_id },
+          { projectId: task.project_id, departmentId: task.department_id },
         );
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra, completed: next === "concluido" });
-        await applyAutomationMoves(task.id, { projectId: task.project_id }, auto.moves);
+        await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
         if (task.assignee_id && task.assignee_id !== currentMember?.id) {
           await createNotifications([
             {
@@ -177,11 +177,11 @@ export function TaskPane({
           automations,
           "assignee_changed",
           { ...task, assignee_id: next },
-          { projectId: task.project_id },
+          { projectId: task.project_id, departmentId: task.department_id },
         );
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra });
-        await applyAutomationMoves(task.id, { projectId: task.project_id }, auto.moves);
+        await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
         if (next && next !== task.assignee_id) {
           await createNotifications([
             {

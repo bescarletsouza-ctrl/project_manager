@@ -30,21 +30,24 @@ export type AutoMoves = {
 };
 
 /**
- * Container que "dispara" as automações. Antes só existia projeto — agora
- * um departamento também pode ter regras próprias (com o mesmo formato).
- * Convenção: passar { projectId } se veio de projeto (mesmo que null para
- * task sem projeto) OU { departmentId } se veio do departamento. Nunca os
- * dois — as automações vivem em um contexto só.
+ * Container(s) em que a alteração está acontecendo. Um mesmo evento pode
+ * atingir os dois lados — uma tarefa que pertence a projeto P e a
+ * departamento D, ao mudar de status, deve disparar as automações de P E
+ * as automações de D. Por isso o container aceita os dois, ao invés de
+ * ser union.
+ *
+ * O filtro é: a regra bate quando o container preenche o campo do lado
+ * que a regra usa. Regra com project_id só casa se o container tem
+ * projectId igual. Regra com department_id só casa se o container tem
+ * departmentId igual. Nunca vaza para outro contexto.
  */
-export type AutomationContainer =
-  | { projectId: string | null; departmentId?: undefined }
-  | { departmentId: string; projectId?: undefined };
+export type AutomationContainer = {
+  projectId?: string | null;
+  departmentId?: string | null;
+};
 
 /**
  * Aplica as automações ativas do container e devolve o patch resultante.
- * O filtro é: automation.project_id === container.projectId (quando o
- * container é projeto) OU automation.department_id === container.departmentId
- * (quando é departamento).
  */
 export function runAutomations(
   automations: Automation[],
@@ -57,10 +60,15 @@ export function runAutomations(
   const moves: AutoMoves = { addProjectIds: [] };
   let notify = false;
 
-  const containerMatches = (a: Automation) =>
-    container.departmentId !== undefined
-      ? a.department_id === container.departmentId
-      : a.project_id === container.projectId;
+  const containerMatches = (a: Automation) => {
+    if (a.project_id != null) {
+      return container.projectId != null && a.project_id === container.projectId;
+    }
+    if (a.department_id != null) {
+      return container.departmentId != null && a.department_id === container.departmentId;
+    }
+    return false;
+  };
 
   for (const a of automations) {
     if (!a.active || !containerMatches(a) || a.trigger_type !== event) continue;

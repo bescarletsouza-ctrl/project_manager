@@ -8,7 +8,13 @@ import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { NewTaskDialog } from "@/components/dialogs";
-import { createSection, createTaskLinked, deleteSection, updateSection } from "@/lib/asana";
+import {
+  createSection,
+  createTaskLinked,
+  deleteSection,
+  updateSection,
+  type Automation,
+} from "@/lib/asana";
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
 import { useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
@@ -55,10 +61,15 @@ function DepartmentDetail() {
     attachments,
   } = useAsanaData();
   const deptAutomations = allAutomations.filter((a) => a.department_id === departmentId);
-  // TaskPane espera receber as automações do contexto atual — usa para
-  // gatilhos de status_changed e assignee_changed. Como aqui tudo é
-  // do departamento, passamos só as regras deste departamento.
-  const automations = deptAutomations;
+  /**
+   * automations aqui é a lista COMPLETA do workspace — o runAutomations
+   * filtra por container internamente. Isso importa porque uma tarefa
+   * aberta no TaskPane do departamento pode ter project_id também, e as
+   * regras do projeto correspondente devem disparar junto. deptAutomations
+   * (só do dept) é usada em quickAddTask e no TaskCard toggle, onde só
+   * queremos aplicar regras deste departamento.
+   */
+  const automations = allAutomations;
   const { member: currentMember, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [newTask, setNewTask] = useState(false);
@@ -488,6 +499,8 @@ function DepartmentDetail() {
                         setOverSectionId(null);
                       }}
                       onOpen={() => setOpenTask(t)}
+                      automations={automations}
+                      departmentId={departmentId}
                     />
                   ))}
                 </div>
@@ -644,6 +657,8 @@ function TaskCard({
   onDragStart,
   onDragEnd,
   onOpen,
+  automations,
+  departmentId,
 }: {
   task: Task;
   assigneeName: string | undefined;
@@ -652,15 +667,39 @@ function TaskCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onOpen: () => void;
+  /**
+   * Automações do container atual — o toggle "concluir" precisa rodá-las,
+   * senão uma regra tipo "quando status = concluido → mover para
+   * Concluído" nunca dispara ao clicar direto no card (funcionaria só via
+   * TaskPane, que era o único caminho que já rodava).
+   */
+  automations: Automation[];
+  departmentId: string;
 }) {
   const qc = useQueryClient();
   const toggle = useMutation({
-    mutationFn: () =>
-      updateTask(task.id, {
-        status: task.status === "concluido" ? "em_andamento" : "concluido",
-        completed: task.status !== "concluido",
-      }),
+    mutationFn: async () => {
+      const nextStatus = task.status === "concluido" ? "em_andamento" : "concluido";
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status: nextStatus as Task["status"] },
+        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(task.id, {
+        status: nextStatus,
+        completed: nextStatus === "concluido",
+        ...patch,
+      });
+      await applyAutomationMoves(
+        task.id,
+        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+        moves,
+      );
+    },
     onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível atualizar."),
   });
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
