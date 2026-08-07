@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
@@ -8,6 +8,22 @@ import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { NewTaskDialog } from "@/components/dialogs";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SlidersHorizontal } from "lucide-react";
 import {
   createSection,
   createTaskLinked,
@@ -45,6 +61,70 @@ function shortDate(date?: string | null) {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
+/**
+ * Colunas configuráveis: quem controla o que rende no card do Quadro e
+ * na linha da Lista. Departamento não tem visible_columns no banco (é
+ * preferência de visualização, não de conteúdo), então salvamos em
+ * localStorage por departamento, com todas visíveis por padrão.
+ */
+const COLUMN_KEYS = ["projeto", "prazo", "prioridade", "status", "sprint", "tipo", "etiquetas", "responsavel"] as const;
+type ColumnKey = (typeof COLUMN_KEYS)[number];
+const COLUMN_LABEL: Record<ColumnKey, string> = {
+  projeto: "Projeto",
+  prazo: "Prazo",
+  prioridade: "Prioridade",
+  status: "Status",
+  sprint: "Sprint",
+  tipo: "Tipo",
+  etiquetas: "Etiquetas",
+  responsavel: "Responsável",
+};
+type ColumnPrefs = Record<ColumnKey, boolean>;
+
+function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey, on: boolean) => void] {
+  const storageKey = `fluxo:dept-cols:${departmentId}`;
+  const defaults: ColumnPrefs = COLUMN_KEYS.reduce(
+    (acc, k) => ({ ...acc, [k]: true }),
+    {} as ColumnPrefs,
+  );
+  const [prefs, setPrefs] = useState<ColumnPrefs>(defaults);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<ColumnPrefs>;
+        setPrefs({ ...defaults, ...parsed });
+      } else {
+        setPrefs(defaults);
+      }
+    } catch {
+      setPrefs(defaults);
+    }
+    setLoaded(true);
+    // defaults é derivado de COLUMN_KEYS (constante), não muda entre renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  const update = (key: ColumnKey, on: boolean) => {
+    setPrefs((p) => {
+      const next = { ...p, [key]: on };
+      if (loaded) {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {
+          /* modo privado ou cota: só afeta esta sessão */
+        }
+      }
+      return next;
+    });
+  };
+
+  return [prefs, update];
+}
+
 function DepartmentDetail() {
   const { departmentId } = Route.useParams();
   const navigate = useNavigate();
@@ -76,6 +156,7 @@ function DepartmentDetail() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editHeader, setEditHeader] = useState(false);
   const [view, setView] = useState<"board" | "list" | "auto">("board");
+  const [columnPrefs, setColumnPref] = useDeptColumnPrefs(departmentId);
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   /** Seção em arraste — quando o header de uma coluna/bloco é agarrado. */
@@ -217,6 +298,14 @@ function DepartmentDetail() {
   const deptTasks = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
   const deptMembers = members.filter((m) => m.department_id === departmentId);
   /**
+   * TaskPane precisa receber o objeto FRESCO do cache — se receber o
+   * snapshot capturado em setOpenTask, alterações que a própria pane
+   * dispara (status, prazo, seção…) só refletem quando o painel fecha
+   * e reabre. Mesma técnica do detalhe de projeto: openTask serve só
+   * de âncora de identidade; live é a versão viva.
+   */
+  const live = openTask ? (tasks.find((t) => t.id === openTask.id) ?? null) : null;
+  /**
    * Set das seções que pertencem A ESTE departamento. Serve pra decidir
    * onde renderizar uma tarefa cujo section_id existe mas é de outro
    * container (ex.: veio de um projeto e o usuário marcou o departamento).
@@ -317,6 +406,34 @@ function DepartmentDetail() {
           <Pill>{sections.length} seções</Pill>
           <Pill>{deptMembers.length} pessoas no departamento</Pill>
         </div>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-muted-foreground hover:text-foreground"
+                title="Ajustar colunas do departamento"
+              >
+                <SlidersHorizontal className="size-3.5" /> Colunas
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                Mostrar nesta visualização
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {COLUMN_KEYS.map((k) => (
+                <DropdownMenuCheckboxItem
+                  key={k}
+                  checked={columnPrefs[k]}
+                  onCheckedChange={(v) => setColumnPref(k, Boolean(v))}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  {COLUMN_LABEL[k]}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         {/* Switcher de visualização — mesmo padrão visual das abas do projeto. */}
         <div className="flex items-center gap-1 rounded-md border border-border bg-background p-0.5 text-[13px]">
           <button
@@ -356,6 +473,7 @@ function DepartmentDetail() {
             <Zap className="size-3.5" /> Automações
           </button>
         </div>
+        </div>
       </div>
 
       {view === "auto" ? (
@@ -373,6 +491,7 @@ function DepartmentDetail() {
           orphanTasks={orphanTasks}
           members={members}
           projects={projects}
+          columnPrefs={columnPrefs}
           renamingSectionId={renaming}
           onRenameStart={(id) => setRenaming(id)}
           onRenameCommit={(id, name) => {
@@ -387,6 +506,19 @@ function DepartmentDetail() {
           }}
           onAddTask={(sectionId, title) => quickAddTask.mutate({ title, sectionId })}
           onOpenTask={(t) => setOpenTask(t)}
+          automations={automations}
+          departmentId={departmentId}
+          dragTaskId={dragTaskId}
+          onTaskDragStart={(id) => setDragTaskId(id)}
+          onTaskDragEnd={() => {
+            setDragTaskId(null);
+            setOverSectionId(null);
+          }}
+          onTaskDrop={(sectionId) => {
+            if (dragTaskId) moveTask.mutate({ taskId: dragTaskId, sectionId });
+            setDragTaskId(null);
+            setOverSectionId(null);
+          }}
           dragSectionId={dragSectionId}
           overSectionId={overSectionId}
           onSectionDragStart={(id) => setDragSectionId(id)}
@@ -504,6 +636,7 @@ function DepartmentDetail() {
                       onOpen={() => setOpenTask(t)}
                       automations={automations}
                       departmentId={departmentId}
+                      columnPrefs={columnPrefs}
                     />
                   ))}
                 </div>
@@ -528,9 +661,9 @@ function DepartmentDetail() {
         />
       )}
 
-      {openTask && (
+      {live && (
         <TaskPane
-          task={openTask}
+          task={live}
           tasks={tasks}
           members={members}
           sections={allSections}
@@ -538,7 +671,7 @@ function DepartmentDetail() {
           fieldValues={fieldValues}
           comments={comments}
           dependencies={dependencies}
-          projects={[]}
+          projects={projects}
           taskProjects={taskProjects}
           automations={automations}
           attachments={attachments}
@@ -664,6 +797,7 @@ function TaskCard({
   onOpen,
   automations,
   departmentId,
+  columnPrefs,
 }: {
   task: Task;
   assigneeName: string | undefined;
@@ -674,6 +808,7 @@ function TaskCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onOpen: () => void;
+  columnPrefs: ColumnPrefs;
   /**
    * Automações do container atual — o toggle "concluir" precisa rodá-las,
    * senão uma regra tipo "quando status = concluido → mover para
@@ -708,6 +843,12 @@ function TaskCard({
     onSuccess: () => qc.invalidateQueries(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
+  const [editingTitle, setEditingTitle] = useState(false);
+  const rename = useMutation({
+    mutationFn: (title: string) => updateTask(task.id, { title }),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível renomear."),
+  });
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
@@ -718,6 +859,8 @@ function TaskCard({
   const done = task.status === "concluido";
 
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <div className="group relative">
       <div
         role="button"
@@ -728,8 +871,9 @@ function TaskCard({
           onDragStart();
         }}
         onDragEnd={onDragEnd}
-        onClick={onOpen}
+        onClick={() => !editingTitle && onOpen()}
         onKeyDown={(e) => {
+          if (editingTitle) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             onOpen();
@@ -758,15 +902,35 @@ function TaskCard({
           >
             <Check className="size-2.5" strokeWidth={3} />
           </button>
-          <span
-            className={cn(
-              "flex-1 pr-5 text-sm leading-snug",
-              done && "text-muted-foreground line-through",
-            )}
-          >
-            {task.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
-            {task.title}
-          </span>
+          {editingTitle ? (
+            <input
+              autoFocus
+              defaultValue={task.title}
+              maxLength={140}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v.length >= 2 && v !== task.title) rename.mutate(v);
+                setEditingTitle(false);
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setEditingTitle(false);
+              }}
+              className="flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+            />
+          ) : (
+            <span
+              className={cn(
+                "flex-1 pr-5 text-sm leading-snug",
+                done && "text-muted-foreground line-through",
+              )}
+            >
+              {task.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
+              {task.title}
+            </span>
+          )}
         </div>
         {/*
           Todas as pills que a tarefa ativou aparecem — mesmo padrão do
@@ -777,7 +941,7 @@ function TaskCard({
           usuário ver de onde a demanda veio sem precisar abrir.
         */}
         <div className="flex flex-wrap items-center gap-1">
-          {projectName && (
+          {columnPrefs.projeto && projectName && (
             <Pill tone="brand">
               <span
                 className={cn(
@@ -788,23 +952,26 @@ function TaskCard({
               {projectName}
             </Pill>
           )}
-          {task.due_date && (
+          {columnPrefs.prazo && task.due_date && (
             <Pill tone={isLate(task) ? "danger" : "neutral"}>{shortDate(task.due_date)}</Pill>
           )}
-          <Pill
-            tone={task.priority === "urgente" ? "danger" : task.priority === "alta" ? "warning" : "neutral"}
-          >
-            {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
-          </Pill>
-          <StatusBadge status={task.status} />
-          {task.sprint && <Pill tone="info">{task.sprint}</Pill>}
-          {task.task_type && <Pill>{task.task_type}</Pill>}
-          {task.tags?.map((tag) => (
-            <Pill key={tag}>{tag}</Pill>
-          ))}
-          <span className="ml-auto">
-            <Avatar name={assigneeName} color={assigneeColor} />
-          </span>
+          {columnPrefs.prioridade && (
+            <Pill
+              tone={task.priority === "urgente" ? "danger" : task.priority === "alta" ? "warning" : "neutral"}
+            >
+              {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
+            </Pill>
+          )}
+          {columnPrefs.status && <StatusBadge status={task.status} />}
+          {columnPrefs.sprint && task.sprint && <Pill tone="info">{task.sprint}</Pill>}
+          {columnPrefs.tipo && task.task_type && <Pill>{task.task_type}</Pill>}
+          {columnPrefs.etiquetas &&
+            task.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+          {columnPrefs.responsavel && (
+            <span className="ml-auto">
+              <Avatar name={assigneeName} color={assigneeColor} />
+            </span>
+          )}
         </div>
       </div>
       <button
@@ -819,6 +986,26 @@ function TaskCard({
         <Trash2 className="size-3.5" />
       </button>
     </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onSelect={onOpen} className="gap-2 text-sm">
+          <Pencil className="size-4" /> Editar (abrir)
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => requestAnimationFrame(() => setEditingTitle(true))}
+          className="gap-2 text-sm"
+        >
+          <Pencil className="size-4" /> Renomear
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => confirm(`Excluir "${task.title}"?`) && remove.mutate()}
+          className="gap-2 text-sm text-destructive focus:text-destructive"
+        >
+          <Trash2 className="size-4" /> Excluir
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -925,6 +1112,7 @@ function ListPanel({
   orphanTasks,
   members,
   projects,
+  columnPrefs,
   renamingSectionId,
   onRenameStart,
   onRenameCommit,
@@ -932,6 +1120,12 @@ function ListPanel({
   onRemoveSection,
   onAddTask,
   onOpenTask,
+  automations,
+  departmentId,
+  dragTaskId,
+  onTaskDragStart,
+  onTaskDragEnd,
+  onTaskDrop,
   dragSectionId,
   overSectionId,
   onSectionDragStart,
@@ -952,6 +1146,7 @@ function ListPanel({
   members: { id: string; name: string; avatar_color: string }[];
   /** Só o suficiente para exibir o pill do projeto de cada tarefa. */
   projects: { id: string; name: string; color: string }[];
+  columnPrefs: ColumnPrefs;
   renamingSectionId: string | null;
   onRenameStart: (id: string) => void;
   onRenameCommit: (id: string, name: string) => void;
@@ -959,6 +1154,15 @@ function ListPanel({
   onRemoveSection: (id: string, name: string) => void;
   onAddTask: (sectionId: string | null, title: string) => void;
   onOpenTask: (t: Task) => void;
+  /** Automações + dept p/ o toggle "concluir" rodar as regras — mesma
+   *  máquina do card do Quadro, reusada aqui. */
+  automations: Automation[];
+  departmentId: string;
+  /** Drag de tarefa entre blocos da Lista (equivalente ao do Quadro). */
+  dragTaskId: string | null;
+  onTaskDragStart: (id: string) => void;
+  onTaskDragEnd: () => void;
+  onTaskDrop: (sectionId: string | null) => void;
   /** Estado de reordenação de seção — vem do componente pai para ser
    *  compartilhado com o Quadro (o hover/drop é feito aqui, mas quem
    *  mantém o dragSectionId é o pai). */
@@ -998,21 +1202,30 @@ function ListPanel({
           <div
             key={section.id || "none"}
             onDragOver={(e) => {
-              // Só aceita o drop de outra seção — dentro da lista não movemos
-              // tarefas (a UX é clique-para-abrir); reordenar tarefas fica no
-              // Quadro, que é o lugar natural.
-              if (!dragSectionId || dragSectionId === section.id || isVirtual) return;
-              e.preventDefault();
-              onSectionOver(section.id);
+              // Aceita drop de seção (reordenar coluna) OU de tarefa (mover
+              // card entre blocos). Seção virtual "Sem seção" nunca aceita
+              // drop de seção — não tem position no banco.
+              if (dragSectionId && dragSectionId !== section.id && !isVirtual) {
+                e.preventDefault();
+                onSectionOver(section.id);
+                return;
+              }
+              if (dragTaskId) {
+                e.preventDefault();
+                onSectionOver(section.id);
+              }
             }}
             onDrop={(e) => {
-              if (!dragSectionId || isVirtual) return;
               e.preventDefault();
-              onSectionDrop(section.id);
+              if (dragSectionId && !isVirtual) {
+                onSectionDrop(section.id);
+              } else if (dragTaskId) {
+                onTaskDrop(section.id || null);
+              }
             }}
             className={cn(
               "px-3 py-2 transition-colors",
-              overSectionId === section.id && !isVirtual && "bg-brand/5",
+              overSectionId === section.id && "bg-brand/5",
             )}
           >
             <SectionHeader
@@ -1043,67 +1256,21 @@ function ListPanel({
                 {list.length === 0 && (
                   <p className="px-2 py-2 text-xs text-muted-foreground">Nenhuma tarefa nesta seção.</p>
                 )}
-                {list.map((t) => {
-                  const assignee = members.find((m) => m.id === t.assignee_id);
-                  const project = projects.find((p) => p.id === t.project_id);
-                  const done = t.status === "concluido";
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => onOpenTask(t)}
-                      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-left transition-colors hover:bg-secondary/50"
-                    >
-                      <span
-                        className={cn(
-                          "flex size-4 shrink-0 items-center justify-center rounded-full border",
-                          done ? "border-success bg-success text-white" : "border-input",
-                        )}
-                      >
-                        {done && <Check className="size-2.5" strokeWidth={3} />}
-                      </span>
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate text-sm",
-                          done && "text-muted-foreground line-through",
-                        )}
-                      >
-                        {t.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
-                        {t.title}
-                      </span>
-                      {/* Mesmo conjunto de pills do card do Quadro — quem
-                          tem valor rende, quem não tem some. Projeto vem
-                          primeiro para dar contexto na linha. */}
-                      {project && (
-                        <Pill tone="brand">
-                          <span className={cn("size-1.5 rounded-full", dotClass(project.color))} />
-                          {project.name}
-                        </Pill>
-                      )}
-                      <Pill
-                        tone={
-                          t.priority === "urgente"
-                            ? "danger"
-                            : t.priority === "alta"
-                              ? "warning"
-                              : "neutral"
-                        }
-                      >
-                        {PRIORITY_LABEL[t.priority as Priority] ?? t.priority}
-                      </Pill>
-                      <StatusBadge status={t.status} />
-                      {t.sprint && <Pill tone="info">{t.sprint}</Pill>}
-                      {t.task_type && <Pill>{t.task_type}</Pill>}
-                      {t.tags?.map((tag) => (
-                        <Pill key={tag}>{tag}</Pill>
-                      ))}
-                      <span className="w-20 shrink-0 truncate text-right text-xs text-muted-foreground">
-                        {t.due_date ? shortDate(t.due_date) : "—"}
-                      </span>
-                      <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
-                    </button>
-                  );
-                })}
+                {list.map((t) => (
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    assignee={members.find((m) => m.id === t.assignee_id)}
+                    project={projects.find((p) => p.id === t.project_id)}
+                    automations={automations}
+                    departmentId={departmentId}
+                    dragging={dragTaskId === t.id}
+                    onDragStart={() => onTaskDragStart(t.id)}
+                    onDragEnd={onTaskDragEnd}
+                    onOpen={() => onOpenTask(t)}
+                    columnPrefs={columnPrefs}
+                  />
+                ))}
                 <div className="pt-1">
                   <ListQuickAdd onAdd={(title) => onAddTask(section.id || null, title)} />
                 </div>
@@ -1159,5 +1326,211 @@ function ListQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
         className="w-full rounded-md border border-transparent bg-transparent px-1 py-1 text-sm focus:border-ring focus:outline-none"
       />
     </div>
+  );
+}
+
+/**
+ * Linha da Lista com toggle na bolinha, drag, edição inline de título
+ * e menu de contexto (Renomear, Editar, Excluir). Um <div> — não um
+ * <button> — porque tem botões aninhados (toggle) e HTML inválido
+ * quebra hidratação. Clique geral abre o TaskPane; clique na bolinha
+ * marca/desmarca concluída direto e roda as automações do container.
+ */
+function TaskRow({
+  task,
+  assignee,
+  project,
+  automations,
+  departmentId,
+  dragging,
+  onDragStart,
+  onDragEnd,
+  onOpen,
+  columnPrefs,
+}: {
+  task: Task;
+  assignee: { name: string; avatar_color: string } | undefined;
+  project: { id: string; name: string; color: string } | undefined;
+  automations: Automation[];
+  departmentId: string;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onOpen: () => void;
+  columnPrefs: ColumnPrefs;
+}) {
+  const qc = useQueryClient();
+  const [editingTitle, setEditingTitle] = useState(false);
+  const done = task.status === "concluido";
+
+  const toggle = useMutation({
+    mutationFn: async () => {
+      const nextStatus = done ? "em_andamento" : "concluido";
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status: nextStatus as Task["status"] },
+        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(task.id, {
+        status: nextStatus,
+        completed: nextStatus === "concluido",
+        ...patch,
+      });
+      await applyAutomationMoves(
+        task.id,
+        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+        moves,
+      );
+    },
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível atualizar."),
+  });
+
+  const rename = useMutation({
+    mutationFn: (title: string) => updateTask(task.id, { title }),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: () => toast.error("Não foi possível renomear."),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteTask(task.id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      toast.success("Tarefa excluída.");
+    },
+    onError: () => toast.error("Não foi possível excluir."),
+  });
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          role="button"
+          tabIndex={0}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("text/task-id", task.id);
+            onDragStart();
+          }}
+          onDragEnd={onDragEnd}
+          onClick={() => !editingTitle && onOpen()}
+          onKeyDown={(e) => {
+            if (editingTitle) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpen();
+            }
+          }}
+          className={cn(
+            "flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 text-left transition-colors hover:bg-secondary/50",
+            "cursor-grab active:cursor-grabbing",
+            dragging && "opacity-50",
+          )}
+        >
+          <button
+            type="button"
+            aria-label={done ? "Reabrir tarefa" : "Concluir tarefa"}
+            title={done ? "Reabrir" : "Concluir"}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle.mutate();
+            }}
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+              done
+                ? "border-success bg-success text-white"
+                : "border-input text-transparent hover:border-success hover:text-success",
+            )}
+          >
+            <Check className="size-2.5" strokeWidth={3} />
+          </button>
+          {editingTitle ? (
+            <input
+              autoFocus
+              defaultValue={task.title}
+              maxLength={140}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v.length >= 2 && v !== task.title) rename.mutate(v);
+                setEditingTitle(false);
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setEditingTitle(false);
+              }}
+              className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+            />
+          ) : (
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                done && "text-muted-foreground line-through",
+              )}
+            >
+              {task.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
+              {task.title}
+            </span>
+          )}
+          {columnPrefs.projeto && project && (
+            <Pill tone="brand">
+              <span className={cn("size-1.5 rounded-full", dotClass(project.color))} />
+              {project.name}
+            </Pill>
+          )}
+          {columnPrefs.prioridade && (
+            <Pill
+              tone={
+                task.priority === "urgente"
+                  ? "danger"
+                  : task.priority === "alta"
+                    ? "warning"
+                    : "neutral"
+              }
+            >
+              {PRIORITY_LABEL[task.priority as Priority] ?? task.priority}
+            </Pill>
+          )}
+          {columnPrefs.status && <StatusBadge status={task.status} />}
+          {columnPrefs.sprint && task.sprint && <Pill tone="info">{task.sprint}</Pill>}
+          {columnPrefs.tipo && task.task_type && <Pill>{task.task_type}</Pill>}
+          {columnPrefs.etiquetas &&
+            task.tags?.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+          {columnPrefs.prazo && (
+            <span className="w-20 shrink-0 truncate text-right text-xs text-muted-foreground">
+              {task.due_date ? shortDate(task.due_date) : "—"}
+            </span>
+          )}
+          {columnPrefs.responsavel && (
+            <Avatar name={assignee?.name} color={assignee?.avatar_color} size="xs" />
+          )}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onSelect={onOpen} className="gap-2 text-sm">
+          <Pencil className="size-4" /> Editar (abrir)
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
+            // A ContextMenu do radix fecha ao selecionar o item; damos um
+            // frame para o menu fechar antes de trocar o span pelo input.
+            requestAnimationFrame(() => setEditingTitle(true));
+          }}
+          className="gap-2 text-sm"
+        >
+          <Pencil className="size-4" /> Renomear
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => confirm(`Excluir "${task.title}"?`) && remove.mutate()}
+          className="gap-2 text-sm text-destructive focus:text-destructive"
+        >
+          <Trash2 className="size-4" /> Excluir
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

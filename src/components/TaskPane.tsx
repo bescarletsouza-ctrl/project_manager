@@ -284,7 +284,20 @@ export function TaskPane({
   });
 
   const projectFields = fields.filter((f) => f.project_id === task.project_id);
-  const projectSections = sections.filter((s) => s.project_id === task.project_id);
+  /**
+   * Seções mostradas no dropdown "Seção": as do projeto da tarefa E as
+   * do departamento da tarefa. Assim, se a demanda foi criada em projeto
+   * P e etiquetada com departamento D, a pessoa vê AS DUAS listas e pode
+   * mudar de container arrastando a tarefa no quadro do dept — o
+   * section_id muda pra uma seção de D e o dropdown reflete direitinho.
+   * Antes filtrávamos só por project_id, então tarefa vinda do dept
+   * mostrava dropdown vazio (bug do print).
+   */
+  const projectSections = sections.filter(
+    (s) =>
+      (task.project_id != null && s.project_id === task.project_id) ||
+      (task.department_id != null && s.department_id === task.department_id),
+  );
   const candidates = tasks.filter((t) => t.id !== task.id && t.project_id === task.project_id);
   const blockedOpen = blockers.some((d) => {
     const b = tasks.find((t) => t.id === d.blocked_by_task_id);
