@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bits";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import {
@@ -40,7 +40,10 @@ export const Route = createFileRoute("/_authenticated/tarefas")({
 
 function TasksPage() {
   const { tasks, projects, members, departments, clients, events, isLoading } = useWorkspaceData();
-  const qc = useQueryClient();
+  // Status muda dispara trigger de histórico (task_status_history) — inclui
+  // status_events no escopo.
+  const invalidateStatus = useInvalidate(["tasks", "status_events"]);
+  const invalidateTask = useInvalidate(["tasks"]);
   const [view, setView] = useState<"lista" | "kanban">("kanban");
   const [selected, setSelected] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
@@ -49,7 +52,7 @@ function TasksPage() {
   const move = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updateTask(id, { status }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateStatus();
       toast.success("Status atualizado — movimentação registrada no histórico.");
     },
     onError: () => toast.error("Não foi possível atualizar a tarefa."),
@@ -223,7 +226,7 @@ function TasksPage() {
           departments={departments}
           clients={clients}
           onCreated={() => {
-            qc.invalidateQueries();
+            invalidateTask();
             setCreating(false);
           }}
         />

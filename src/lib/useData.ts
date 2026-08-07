@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clientsQuery,
   departmentsQuery,
@@ -7,6 +7,17 @@ import {
   statusEventsQuery,
   tasksQuery,
 } from "./data";
+
+/**
+ * Invalida só as queries dadas, em vez do cache inteiro (qc.invalidateQueries()
+ * sem argumento refaz as ~18 queries do app a cada mutação, mesmo quando só
+ * "tasks" mudou). Mesmo padrão já usado em configuracoes.tsx, centralizado
+ * aqui para reaproveitar em qualquer mutação do app.
+ */
+export function useInvalidate(keys: string[]) {
+  const qc = useQueryClient();
+  return () => keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+}
 
 export function useWorkspaceData() {
   const members = useQuery(membersQuery);

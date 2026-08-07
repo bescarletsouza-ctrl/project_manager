@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState, MetaItem, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
-import { useWorkspaceData, nameById, initials } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById, initials } from "@/lib/useData";
 import {
   ACCESS_ROLES,
   ACCESS_ROLE_LABEL,
@@ -92,11 +92,6 @@ function SettingsPage() {
       {tab === "clientes" && <ClientsPanel />}
     </div>
   );
-}
-
-function useInvalidate(keys: string[]) {
-  const qc = useQueryClient();
-  return () => keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 }
 
 /* ------------------------------- Equipe -------------------------------- */

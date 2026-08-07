@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   CalendarDays,
@@ -18,6 +18,7 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
 import { createTask, departmentsQuery, deleteTask, statusEventsQuery, updateTask } from "@/lib/data";
+import { useInvalidate } from "@/lib/useData";
 import {
   FIELD_TYPE_LABEL,
   addDependency,
@@ -97,7 +98,6 @@ export function TaskPane({
   onClose,
   onOpenTask,
 }: Props) {
-  const qc = useQueryClient();
   const events = useQuery(statusEventsQuery).data ?? [];
   const departments = useQuery(departmentsQuery).data ?? [];
 
@@ -123,7 +123,13 @@ export function TaskPane({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const invalidate = () => qc.invalidateQueries();
+  // patch (status/responsável/seção) pode rodar automações que mexem em
+  // task_projects, task_field_values e criar notificação, além do "tasks".
+  const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateComments = useInvalidate(["task_comments", "comment_mentions", "notifications"]);
+  const invalidateDeps = useInvalidate(["task_dependencies"]);
+  const invalidateFieldValues = useInvalidate(["task_field_values"]);
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
 
   const subtasks = tasks.filter((t) => t.parent_task_id === task.id);
@@ -203,7 +209,7 @@ export function TaskPane({
 
       await updateTask(task.id, input);
     },
-    onSuccess: invalidate,
+    onSuccess: invalidatePatch,
     onError: (e: unknown) =>
       toast.error(`Não foi possível salvar: ${(e as { message?: string })?.message ?? "erro"}`),
   });
@@ -211,7 +217,7 @@ export function TaskPane({
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      invalidate();
+      invalidateTask();
       toast.success("Tarefa excluída.");
       onClose();
     },
@@ -232,7 +238,7 @@ export function TaskPane({
       }),
     onSuccess: () => {
       setSubtitle("");
-      invalidate();
+      invalidateTask();
     },
     onError: () => toast.error("Não foi possível criar a subtarefa."),
   });
@@ -263,7 +269,7 @@ export function TaskPane({
     },
     onSuccess: () => {
       setComment("");
-      invalidate();
+      invalidateComments();
     },
     onError: () => toast.error("Não foi possível comentar."),
   });
@@ -272,18 +278,18 @@ export function TaskPane({
     mutationFn: () => addDependency(task.id, depTarget),
     onSuccess: () => {
       setDepTarget("");
-      invalidate();
+      invalidateDeps();
       toast.success("Dependência adicionada.");
     },
     onError: () => toast.error("Dependência inválida ou já existente."),
   });
 
-  const unlinkDep = useMutation({ mutationFn: (id: string) => removeDependency(id), onSuccess: invalidate });
+  const unlinkDep = useMutation({ mutationFn: (id: string) => removeDependency(id), onSuccess: () => invalidateDeps() });
 
   const saveField = useMutation({
     mutationFn: ({ fieldId, value }: { fieldId: string; value: string }) =>
       setFieldValue(task.id, fieldId, value || null),
-    onSuccess: invalidate,
+    onSuccess: () => invalidateFieldValues(),
     onError: () => toast.error("Não foi possível salvar o campo."),
   });
 
@@ -758,12 +764,12 @@ function formatDay(date: string) {
 }
 
 function SubtaskCheck({ task }: { task: Task }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: () =>
       updateTask(task.id, { status: done ? "em_andamento" : "concluido", completed: !done }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
   return (
@@ -798,7 +804,7 @@ function AttachmentsBlock({
   currentMemberId: string | null;
   currentUserId: string | null;
 }) {
-  const qc = useQueryClient();
+  const invalidateAttachments = useInvalidate(["task_attachments"]);
 
   const upload = useMutation({
     mutationFn: (file: File) =>
@@ -808,14 +814,14 @@ function AttachmentsBlock({
         memberId: currentMemberId,
         userId: currentUserId,
       }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateAttachments(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível enviar o anexo: ${(e as { message?: string })?.message ?? "erro"}`),
   });
 
   const remove = useMutation({
     mutationFn: (att: TaskAttachment) => deleteTaskAttachment(att),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateAttachments(),
     onError: () => toast.error("Não foi possível excluir o anexo."),
   });
 
@@ -924,14 +930,14 @@ function CommentItem({
   author: Member | null;
   isOwn: boolean;
 }) {
-  const qc = useQueryClient();
+  const invalidateComments = useInvalidate(["task_comments", "comment_mentions"]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
 
   const save = useMutation({
     mutationFn: (body: string) => updateComment(comment.id, body),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateComments();
       setEditing(false);
     },
     onError: () => toast.error("Não foi possível salvar a edição."),
@@ -939,7 +945,7 @@ function CommentItem({
 
   const remove = useMutation({
     mutationFn: () => deleteComment(comment.id),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateComments(),
     onError: () => toast.error("Não foi possível excluir o comentário."),
   });
 
@@ -1038,7 +1044,7 @@ function TaskProjectsBlock({
   taskProjects: TaskProject[];
   sections: Section[];
 }) {
-  const qc = useQueryClient();
+  const invalidateLinks = useInvalidate(["task_projects"]);
   /** Etapa 1: pessoa escolhe o projeto; etapa 2: escolhe a seção dele. */
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
   const links = taskProjects.filter((l) => l.task_id === task.id);
@@ -1049,7 +1055,7 @@ function TaskProjectsBlock({
       linkTaskToProject(task.id, projectId, sectionId),
     onSuccess: () => {
       setPendingProjectId(null);
-      qc.invalidateQueries();
+      invalidateLinks();
       toast.success("Tarefa agora aparece neste projeto também.");
     },
     onError: () => toast.error("Não foi possível vincular ao projeto."),
@@ -1058,7 +1064,7 @@ function TaskProjectsBlock({
   const remove = useMutation({
     mutationFn: (id: string) => unlinkTaskFromProject(id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateLinks();
       toast.success("Vínculo removido.");
     },
     onError: () => toast.error("Não foi possível remover o vínculo."),

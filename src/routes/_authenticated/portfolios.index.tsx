@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { FolderKanban } from "lucide-react";
 import { Bar, Pill, SectionTitle } from "@/components/ui-bits";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData } from "@/lib/useAsana";
 import { createPortfolio } from "@/lib/asana";
 import { projectHealth } from "@/lib/domain";
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_authenticated/portfolios/")({
 function PortfoliosPage() {
   const { projects, tasks, members, isLoading } = useWorkspaceData();
   const { portfolios } = useAsanaData();
-  const qc = useQueryClient();
+  const invalidatePortfolios = useInvalidate(["portfolios"]);
   const [form, setForm] = useState({ name: "", description: "", owner_id: "" });
 
   const add = useMutation({
@@ -39,7 +39,7 @@ function PortfoliosPage() {
       }),
     onSuccess: () => {
       setForm({ name: "", description: "", owner_id: "" });
-      qc.invalidateQueries();
+      invalidatePortfolios();
       toast.success("Portfólio criado.");
     },
     onError: () => toast.error("Não foi possível criar o portfólio."),

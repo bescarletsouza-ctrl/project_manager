@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Bar, Pill, SectionTitle } from "@/components/ui-bits";
-import { useWorkspaceData, nameById, initials } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById, initials } from "@/lib/useData";
 import { updateTask } from "@/lib/data";
 import { isOpen, isLate, personMetrics, PRIORITY_LABEL } from "@/lib/domain";
 import { requireRole } from "@/lib/access";
@@ -26,13 +26,13 @@ export const Route = createFileRoute("/_authenticated/workload")({
 
 function WorkloadPage() {
   const { members, tasks, departments, isLoading } = useWorkspaceData();
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
 
   const reassign = useMutation({
     mutationFn: ({ id, assignee_id }: { id: string; assignee_id: string }) =>
       updateTask(id, { assignee_id }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa redistribuída.");
     },
     onError: () => toast.error("Não foi possível redistribuir."),

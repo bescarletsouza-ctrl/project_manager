@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { AutomationsPanel } from "@/components/AutomationsPanel";
@@ -31,7 +31,7 @@ import {
   type Automation,
 } from "@/lib/asana";
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
-import { useWorkspaceData } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
@@ -121,7 +121,6 @@ function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey
 function DepartmentDetail() {
   const { departmentId } = Route.useParams();
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const { departments, members, projects, tasks, isLoading } = useWorkspaceData();
   const {
     sections: allSections,
@@ -158,10 +157,19 @@ function DepartmentDetail() {
 
   const department = departments.find((d) => d.id === departmentId);
 
+  const invalidateDept = useInvalidate(["departments"]);
+  // Excluir departamento/seção leva tarefas junto (cascade no banco).
+  const invalidateDeptCascade = useInvalidate(["departments", "sections", "tasks"]);
+  const invalidateSections = useInvalidate(["sections"]);
+  const invalidateSectionsCascade = useInvalidate(["sections", "tasks"]);
+  // Qualquer mutação que roda automações pode mexer em task_projects (mover
+  // seção de projeto), task_field_values (set_field) ou criar notificação.
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+
   const patchDept = useMutation({
     mutationFn: (patch: { name?: string; color?: string }) => updateDepartment(departmentId, patch),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateDept();
       setEditHeader(false);
     },
     onError: () => toast.error("Não foi possível salvar."),
@@ -170,7 +178,7 @@ function DepartmentDetail() {
   const removeDept = useMutation({
     mutationFn: () => deleteDepartment(departmentId),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateDeptCascade();
       toast.success("Departamento removido.");
       navigate({ to: "/departamentos" });
     },
@@ -181,7 +189,7 @@ function DepartmentDetail() {
     mutationFn: (name: string) =>
       createSection({ department_id: departmentId, name, position: 999 }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateSections();
       toast.success("Seção criada.");
     },
     onError: (e: unknown) =>
@@ -191,14 +199,14 @@ function DepartmentDetail() {
   const renameSection = useMutation({
     mutationFn: (input: { id: string; name: string }) =>
       updateSection(input.id, { name: input.name }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateSections(),
     onError: () => toast.error("Não foi possível renomear a seção."),
   });
 
   const removeSection = useMutation({
     mutationFn: (id: string) => deleteSection(id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateSectionsCascade();
       toast.success("Seção removida.");
     },
     onError: () => toast.error("Não foi possível remover a seção."),
@@ -221,7 +229,7 @@ function DepartmentDetail() {
       const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível mover a tarefa."),
   });
 
@@ -234,7 +242,7 @@ function DepartmentDetail() {
   const reorderSections = useMutation({
     mutationFn: (ids: string[]) =>
       Promise.all(ids.map((id, i) => updateSection(id, { position: i }))),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateSections(),
     onError: () => toast.error("Não foi possível reordenar as seções."),
   });
 
@@ -265,7 +273,7 @@ function DepartmentDetail() {
       if (newId) await applyAutomationMoves(newId, { departmentId }, moves);
       return newId;
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível criar a tarefa: ${(e as Error)?.message ?? "erro"}`),
   });
@@ -819,11 +827,12 @@ function TaskCard({
   automations: Automation[];
   departmentId: string;
 }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto: grava sem passar pelas automações (só status/assignee do toggle rodam automação). */
   const fieldPatch = useMutation({
     mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível salvar."),
   });
   const toggle = useMutation({
@@ -847,19 +856,19 @@ function TaskCard({
         moves,
       );
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
   const [editingTitle, setEditingTitle] = useState(false);
   const rename = useMutation({
     mutationFn: (title: string) => updateTask(task.id, { title }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível renomear."),
   });
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa excluída.");
     },
   });
@@ -1407,14 +1416,15 @@ function TaskRow({
   onOpen: () => void;
   columnPrefs: ColumnPrefs;
 }) {
-  const qc = useQueryClient();
   const [editingTitle, setEditingTitle] = useState(false);
   const done = task.status === "concluido";
+  const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
 
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto. */
   const fieldPatch = useMutation({
     mutationFn: (patch: Partial<Task>) => updateTask(task.id, patch),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível salvar."),
   });
 
@@ -1439,20 +1449,20 @@ function TaskRow({
         moves,
       );
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
 
   const rename = useMutation({
     mutationFn: (title: string) => updateTask(task.id, { title }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível renomear."),
   });
 
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa excluída.");
     },
     onError: () => toast.error("Não foi possível excluir."),

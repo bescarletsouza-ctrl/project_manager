@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Bar, EmptyState, Pill, SectionTitle } from "@/components/ui-bits";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData } from "@/lib/useAsana";
 import { deletePortfolio } from "@/lib/asana";
 import { updateProject } from "@/lib/data";
@@ -23,14 +23,15 @@ export const Route = createFileRoute("/_authenticated/portfolios/$portfolioId")(
 function PortfolioDetail() {
   const { portfolioId } = Route.useParams();
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  const invalidatePortfolioCascade = useInvalidate(["portfolios", "projects"]);
+  const invalidateProjects = useInvalidate(["projects"]);
   const { projects, tasks, clients, members, isLoading } = useWorkspaceData();
   const { portfolios } = useAsanaData();
 
   const remove = useMutation({
     mutationFn: () => deletePortfolio(portfolioId),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidatePortfolioCascade();
       toast.success("Portfólio removido.");
       navigate({ to: "/portfolios" });
     },
@@ -40,7 +41,7 @@ function PortfolioDetail() {
   const attach = useMutation({
     mutationFn: (projectId: string) => updateProject(projectId, { portfolio_id: portfolioId }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       toast.success("Projeto adicionado ao portfólio.");
     },
     onError: () => toast.error("Não foi possível adicionar."),
@@ -48,7 +49,7 @@ function PortfolioDetail() {
 
   const detach = useMutation({
     mutationFn: (projectId: string) => updateProject(projectId, { portfolio_id: null }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateProjects(),
   });
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;

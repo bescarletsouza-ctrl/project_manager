@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { deleteTask, duplicateSection, duplicateTask, tasksQuery, updateTask } from "@/lib/data";
+import { useInvalidate } from "@/lib/useData";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -103,11 +104,11 @@ function shortDate(date?: string | null) {
 
 /** Botão de excluir tarefa (com confirmação). */
 export function DeleteTaskButton({ task, className }: { task: Task; className?: string }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa excluída.");
     },
     onError: (e: unknown) =>
@@ -141,13 +142,16 @@ export function useSectionMutations(
   tasks: Task[],
   allSections: Section[],
 ) {
-  const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries();
+  const invalidateSections = useInvalidate(["sections"]);
+  const invalidateSectionsCascade = useInvalidate(["sections", "tasks"]);
+  // Automação pode mexer em task_projects (mover seção de projeto),
+  // task_field_values (set_field) ou criar notificação.
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
 
   const addSection = useMutation({
     mutationFn: (name: string) => createSection({ project_id: projectId, name, position: 999 }),
     onSuccess: () => {
-      invalidate();
+      invalidateSections();
       toast.success("Seção criada.");
     },
     onError: () => toast.error("Não foi possível criar a seção."),
@@ -155,14 +159,14 @@ export function useSectionMutations(
 
   const renameSection = useMutation({
     mutationFn: (input: { id: string; name: string }) => updateSection(input.id, { name: input.name }),
-    onSuccess: invalidate,
+    onSuccess: () => invalidateSections(),
     onError: () => toast.error("Não foi possível renomear a seção."),
   });
 
   const removeSection = useMutation({
     mutationFn: (id: string) => deleteSection(id),
     onSuccess: () => {
-      invalidate();
+      invalidateSectionsCascade();
       toast.success("Seção removida.");
     },
     onError: () => toast.error("Não foi possível remover a seção."),
@@ -171,7 +175,7 @@ export function useSectionMutations(
   const dupSection = useMutation({
     mutationFn: (id: string) => duplicateSection(id),
     onSuccess: () => {
-      invalidate();
+      invalidateSectionsCascade();
       toast.success("Seção duplicada.");
     },
     onError: (e: unknown) =>
@@ -212,14 +216,14 @@ export function useSectionMutations(
       if (newId) await applyAutomationMoves(newId, { projectId }, moves);
       return newId;
     },
-    onSuccess: invalidate,
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível criar a tarefa."),
   });
 
   const moveTask = useMutation({
     mutationFn: (input: { taskId: string; sectionId: string }) =>
       setTaskProjectSection(input.taskId, projectId, input.sectionId),
-    onSuccess: invalidate,
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível mover a tarefa."),
   });
 
@@ -239,14 +243,14 @@ export function useSectionMutations(
       }
       await Promise.all(input.ids.map((id, i) => updateTask(id, { position: i })));
     },
-    onSuccess: invalidate,
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível reordenar as tarefas."),
   });
 
   /** Reordena seções do projeto. */
   const reorderSections = useMutation({
     mutationFn: (ids: string[]) => Promise.all(ids.map((id, i) => updateSection(id, { position: i }))),
-    onSuccess: invalidate,
+    onSuccess: () => invalidateSections(),
     onError: () => toast.error("Não foi possível reordenar as seções."),
   });
 
@@ -327,8 +331,8 @@ function TaskToggle({
   automations: Automation[];
   size?: "sm" | "md";
 }) {
-  const qc = useQueryClient();
   const done = task.status === "concluido";
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const toggle = useMutation({
     mutationFn: async () => {
       const status = done ? "em_andamento" : "concluido";
@@ -342,7 +346,7 @@ function TaskToggle({
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       return res;
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
 
@@ -797,7 +801,10 @@ function TaskHeader({
 /* ---------- edição inline das colunas (fora da tarefa) ---------- */
 
 function useTaskPatch(task: Task, automations: Automation[] = [], allSections: Section[] = []) {
-  const qc = useQueryClient();
+  // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
+  // mas o de seção pode rodar automação (task_projects/task_field_values/
+  // notifications) — usar o superset evita invalidação incompleta.
+  const invalidate = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   return useMutation({
     mutationFn: async (patch: Partial<Task>) => {
       // Seção muda de container/agrupamento — precisa gravar no lugar certo
@@ -809,7 +816,7 @@ function useTaskPatch(task: Task, automations: Automation[] = [], allSections: S
       }
       await updateTask(task.id, patch);
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidate(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível salvar: ${(e as { message?: string })?.message ?? "erro"}`),
   });
@@ -899,8 +906,8 @@ export function CustomFieldCell({
   automations?: Automation[];
   container?: { projectId?: string | null; departmentId?: string | null };
 }) {
-  const qc = useQueryClient();
   const allTasks = useQuery(tasksQuery).data ?? [];
+  const invalidate = useInvalidate(["task_field_values", "tasks", "task_projects", "notifications"]);
   const save = useMutation({
     mutationFn: async (v: string) => {
       const newValue = v === "" ? null : v;
@@ -920,7 +927,7 @@ export function CustomFieldCell({
         }
       }
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidate(),
     onError: () => toast.error("Não foi possível salvar o campo."),
   });
 
@@ -1274,7 +1281,6 @@ function SectionHeader({
  * projeto inteiro.
  */
 function useTaskSelection(tasks: Task[], projectId: string) {
-  const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const allIds = tasks.map((t) => t.id);
@@ -1292,7 +1298,8 @@ function useTaskSelection(tasks: Task[], projectId: string) {
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allIds));
   const clear = () => setSelected(new Set());
 
-  const invalidate = () => qc.invalidateQueries();
+  const invalidateMoved = useInvalidate(["tasks", "task_projects"]);
+  const invalidateTask = useInvalidate(["tasks"]);
 
   /** Move para outra seção — mesmo caminho que o drag-and-drop já usa (task_projects),
    * mais um espelho em tasks.section_id para tarefas sem vínculo em task_projects. */
@@ -1305,7 +1312,7 @@ function useTaskSelection(tasks: Task[], projectId: string) {
         }),
       ),
     onSuccess: () => {
-      invalidate();
+      invalidateMoved();
       toast.success("Tarefas movidas.");
     },
     onError: () => toast.error("Não foi possível mover as tarefas selecionadas."),
@@ -1315,7 +1322,7 @@ function useTaskSelection(tasks: Task[], projectId: string) {
   const bulkPatch = useMutation({
     mutationFn: (patch: Partial<Task>) => Promise.all([...selected].map((id) => updateTask(id, patch))),
     onSuccess: () => {
-      invalidate();
+      invalidateTask();
       toast.success("Tarefas atualizadas.");
     },
     onError: () => toast.error("Não foi possível atualizar as tarefas selecionadas."),
@@ -1324,7 +1331,7 @@ function useTaskSelection(tasks: Task[], projectId: string) {
   const bulkDelete = useMutation({
     mutationFn: () => Promise.all([...selected].map((id) => deleteTask(id))),
     onSuccess: () => {
-      invalidate();
+      invalidateTask();
       toast.success("Tarefas excluídas.");
       clear();
     },
@@ -1417,7 +1424,8 @@ function TaskContextMenu({
   onOpen: () => void;
   children: React.ReactNode;
 }) {
-  const qc = useQueryClient();
+  const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTask = useInvalidate(["tasks"]);
 
   const patch = useMutation({
     mutationFn: async (input: Partial<Task>) => {
@@ -1428,14 +1436,14 @@ function TaskContextMenu({
       }
       await updateTask(task.id, input);
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidatePatch(),
     onError: () => toast.error("Não foi possível atualizar a tarefa."),
   });
 
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa excluída.");
     },
     onError: () => toast.error("Não foi possível excluir a tarefa."),
@@ -1444,7 +1452,7 @@ function TaskContextMenu({
   const duplicate = useMutation({
     mutationFn: () => duplicateTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa duplicada.");
     },
     onError: () => toast.error("Não foi possível duplicar a tarefa."),
@@ -2412,7 +2420,6 @@ export function CalendarView({
   allSections,
   onOpenTask,
 }: ViewProps) {
-  const qc = useQueryClient();
   const { addTask } = useSectionMutations(projectId, project, automations, tasks, allSections);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -2420,9 +2427,10 @@ export function CalendarView({
   });
   const [composing, setComposing] = useState<string | null>(null);
 
+  const invalidateTask = useInvalidate(["tasks"]);
   const reschedule = useMutation({
     mutationFn: (input: { id: string; due_date: string }) => updateTask(input.id, { due_date: input.due_date }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível mudar o prazo."),
   });
 

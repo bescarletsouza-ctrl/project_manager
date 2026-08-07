@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { SectionTitle } from "@/components/ui-bits";
@@ -25,6 +25,7 @@ import {
   type Member,
   type Task,
 } from "@/lib/domain";
+import { useInvalidate } from "@/lib/useData";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,7 +63,7 @@ export function AutomationsPanel({
    */
   fields: CustomField[];
 }) {
-  const qc = useQueryClient();
+  const invalidateAutomations = useInvalidate(["automations"]);
   const [form, setForm] = useState({
     name: "",
     trigger_type: "task_created" as AutoEvent,
@@ -108,7 +109,7 @@ export function AutomationsPanel({
         field_id: "",
         field_value: "",
       });
-      qc.invalidateQueries();
+      invalidateAutomations();
       toast.success("Automação criada.");
     },
     onError: () => toast.error("Não foi possível criar a automação."),
@@ -116,12 +117,12 @@ export function AutomationsPanel({
 
   const toggle = useMutation({
     mutationFn: (a: Automation) => updateAutomation(a.id, { active: !a.active }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateAutomations(),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteAutomation(id),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateAutomations(),
   });
 
   const actionOptions = () => {

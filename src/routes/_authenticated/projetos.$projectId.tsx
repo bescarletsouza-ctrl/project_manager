@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   CalendarDays,
@@ -23,7 +23,7 @@ import { Bar, EmptyState, Field, MetaItem, Modal, Pill, RowMenu, SectionTitle } 
 import { TaskPane } from "@/components/TaskPane";
 import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { BoardView, CalendarView, ListView, TimelineView } from "@/components/project/ProjectViews";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { hasProjectAccess, useAccessRole } from "@/lib/access";
 import { deleteProject, duplicateProject, updateProject } from "@/lib/data";
@@ -132,14 +132,14 @@ const PANELS: { id: ViewId; label: string; icon: React.ComponentType<{ className
  * Manda só {name} no patch (as outras configurações não são tocadas).
  */
 function EditableProjectName({ project, canEdit }: { project: Project; canEdit: boolean }) {
-  const qc = useQueryClient();
+  const invalidateProjects = useInvalidate(["projects"]);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(project.name);
 
   const save = useMutation({
     mutationFn: (name: string) => updateProject(project.id, { name }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       setEditing(false);
     },
     onError: () => {
@@ -221,7 +221,19 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
 function ProjectDetail() {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  // Excluir/duplicar projeto é raro e mexe em muita coisa (tarefas, seções,
+  // vínculos, automações, campos) — invalidar esse conjunto amplo aqui é
+  // seguro; o ganho de performance da tela vem das ações frequentes
+  // (editar campo, marcar concluído, arrastar), escopadas mais abaixo.
+  const invalidateProjectCascade = useInvalidate([
+    "projects",
+    "tasks",
+    "sections",
+    "task_projects",
+    "automations",
+    "custom_fields",
+    "task_field_values",
+  ]);
   const { projects, tasks, members, departments, isLoading } = useWorkspaceData();
   const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations, attachments } =
     useAsanaData();
@@ -241,7 +253,7 @@ function ProjectDetail() {
   const remove = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjectCascade();
       toast.success("Projeto excluído.");
       navigate({ to: "/projetos" });
     },
@@ -251,7 +263,7 @@ function ProjectDetail() {
   const duplicate = useMutation({
     mutationFn: () => duplicateProject(projectId),
     onSuccess: (newId) => {
-      qc.invalidateQueries();
+      invalidateProjectCascade();
       toast.success("Projeto duplicado.");
       // A duplicação já apaga cópia parcial em caso de erro (ver duplicateProject),
       // então aqui podemos navegar direto sem risco de mandar o usuário para um ID quebrado.
@@ -732,7 +744,7 @@ function OverviewPanel({
 /* ---------------- configuração do projeto ---------------- */
 
 function ProjectSettings({ project, members }: { project: Project; members: Member[] }) {
-  const qc = useQueryClient();
+  const invalidateProjects = useInvalidate(["projects"]);
   const [form, setForm] = useState({
     default_assignee_id: project.default_assignee_id ?? "",
     default_due_days: project.default_due_days?.toString() ?? "",
@@ -745,7 +757,7 @@ function ProjectSettings({ project, members }: { project: Project; members: Memb
         default_due_days: form.default_due_days ? Number(form.default_due_days) : null,
       }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       toast.success("Configuração salva.");
     },
     onError: () => toast.error("Não foi possível salvar a configuração."),
@@ -802,7 +814,7 @@ function ColumnsPanel({
   project: Project;
   fields: { id: string; name: string; field_type: CustomFieldType }[];
 }) {
-  const qc = useQueryClient();
+  const invalidateProjects = useInvalidate(["projects"]);
   const saved = project.visible_columns ?? ["assignee", "due_date", "status"];
   const anyCustomPicked = saved.some((c) => c.startsWith("cf:"));
   const initial = anyCustomPicked ? saved : [...saved, ...fields.map((f) => `cf:${f.id}`)];
@@ -811,7 +823,7 @@ function ColumnsPanel({
   const save = useMutation({
     mutationFn: () => updateProject(project.id, { visible_columns: selected }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       toast.success("Colunas atualizadas.");
     },
     onError: () => toast.error("Não foi possível salvar as colunas."),
@@ -868,7 +880,8 @@ function CustomFieldsPanel({
   projectId: string;
   fields: { id: string; name: string; field_type: CustomFieldType; options: string[] }[];
 }) {
-  const qc = useQueryClient();
+  const invalidateFields = useInvalidate(["custom_fields"]);
+  const invalidateFieldsCascade = useInvalidate(["custom_fields", "task_field_values"]);
   const [form, setForm] = useState({ name: "", field_type: "text" as CustomFieldType, options: "" });
 
   const add = useMutation({
@@ -884,7 +897,7 @@ function CustomFieldsPanel({
       }),
     onSuccess: () => {
       setForm({ name: "", field_type: "text", options: "" });
-      qc.invalidateQueries();
+      invalidateFields();
       toast.success("Campo criado.");
     },
     onError: () => toast.error("Não foi possível criar o campo."),
@@ -892,7 +905,7 @@ function CustomFieldsPanel({
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteCustomField(id),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateFieldsCascade(),
   });
 
   return (
@@ -969,7 +982,7 @@ function EditProject({
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const qc = useQueryClient();
+  const invalidateProjects = useInvalidate(["projects"]);
   const [form, setForm] = useState({
     name: project.name,
     description: project.description ?? "",
@@ -996,7 +1009,7 @@ function EditProject({
         color: form.color,
       }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       toast.success("Projeto atualizado.");
       onClose();
     },

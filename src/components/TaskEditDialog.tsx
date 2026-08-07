@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SectionTitle } from "@/components/ui-bits";
 import { updateTask, deleteTask } from "@/lib/data";
 import { PRIORITIES, PRIORITY_LABEL, type Task } from "@/lib/domain";
+import { useInvalidate } from "@/lib/useData";
 
 export function TaskEditDialog({
   task,
@@ -16,7 +17,7 @@ export function TaskEditDialog({
   onClose: () => void;
   onDeleted?: () => void;
 }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const [form, setForm] = useState({
     title: task.title,
     description: task.description ?? "",
@@ -35,7 +36,7 @@ export function TaskEditDialog({
         due_date: form.due_date || null,
       }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa atualizada.");
       onClose();
     },
@@ -45,7 +46,7 @@ export function TaskEditDialog({
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success("Tarefa excluída.");
       onDeleted?.();
       onClose();
@@ -141,12 +142,12 @@ export function TaskEditDialog({
 }
 
 export function TaskCheck({ task, className = "" }: { task: Task; className?: string }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: () => updateTask(task.id, { status: done ? "em_andamento" : "concluido" }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateTask();
       toast.success(done ? "Tarefa reaberta." : "Tarefa concluída.");
     },
     onError: () => toast.error("Não foi possível atualizar a tarefa."),

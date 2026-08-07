@@ -1,13 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { EmptyState, Field } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { createTask, updateTask } from "@/lib/data";
-import { useWorkspaceData } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { isLate, isOpen, type Member, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
@@ -204,13 +204,13 @@ function TaskRow({
   members: Member[];
   onOpen: () => void;
 }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const done = task.status === "concluido";
   const project = projects.find((p) => p.id === task.project_id) ?? null;
 
   const patch = useMutation({
     mutationFn: (input: Record<string, unknown>) => updateTask(task.id, input),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
 
@@ -262,7 +262,7 @@ function TaskRow({
 
 /** Criação rápida direto na seção, já atribuída a mim e com o prazo da faixa. */
 function AddMyTask({ member, dueDate }: { member: Member; dueDate: string | null }) {
-  const qc = useQueryClient();
+  const invalidateTask = useInvalidate(["tasks"]);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
 
@@ -274,7 +274,7 @@ function AddMyTask({ member, dueDate }: { member: Member; dueDate: string | null
         due_date: dueDate,
         status: "a_fazer",
       }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível criar a tarefa."),
   });
 

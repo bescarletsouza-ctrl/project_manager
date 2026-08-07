@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Field, Modal } from "@/components/ui-bits";
 import {
@@ -10,6 +10,7 @@ import {
   membersQuery,
   projectsQuery,
 } from "@/lib/data";
+import { useInvalidate } from "@/lib/useData";
 import { createPortfolio, createSection, createTaskLinked, portfoliosQuery, sectionsQuery } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { COLOR_KEYS, dotClass } from "@/lib/colors";
@@ -33,7 +34,7 @@ export function NewTaskDialog({
   projectId?: string;
   departmentId?: string;
 }) {
-  const qc = useQueryClient();
+  const invalidateNewTask = useInvalidate(["tasks", "task_projects"]);
   const { member } = useCurrentMember();
   const projects = useQuery(projectsQuery).data ?? [];
   const sections = useQuery(sectionsQuery).data ?? [];
@@ -74,7 +75,7 @@ export function NewTaskDialog({
       );
     },
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateNewTask();
       toast.success("Tarefa criada.");
       onClose();
     },
@@ -178,7 +179,7 @@ export function NewTaskDialog({
 }
 
 export function NewProjectDialog({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
+  const invalidateNewProject = useInvalidate(["projects", "sections"]);
   const navigate = useNavigate();
   const members = useQuery(membersQuery).data ?? [];
   const portfolios = useQuery(portfoliosQuery).data ?? [];
@@ -209,7 +210,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       return id;
     },
     onSuccess: (id) => {
-      qc.invalidateQueries();
+      invalidateNewProject();
       toast.success("Projeto criado com as seções padrão.");
       onClose();
       navigate({ to: "/projetos/$projectId", params: { projectId: id } });
@@ -324,7 +325,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
  * para não precisar navegar toda vez.
  */
 export function NewPortfolioDialog({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
+  const invalidatePortfolios = useInvalidate(["portfolios"]);
   const navigate = useNavigate();
   const members = useQuery(membersQuery).data ?? [];
   const [form, setForm] = useState({ name: "", description: "", owner_id: "", color: "blue" });
@@ -338,7 +339,7 @@ export function NewPortfolioDialog({ onClose }: { onClose: () => void }) {
         color: form.color,
       }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidatePortfolios();
       toast.success("Portfólio criado.");
       onClose();
       navigate({ to: "/portfolios" });
@@ -422,7 +423,7 @@ export function NewPortfolioDialog({ onClose }: { onClose: () => void }) {
  * este atalho não tem essa restrição.
  */
 export function NewDepartmentDialog({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
+  const invalidateDepartments = useInvalidate(["departments"]);
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", color: "blue" });
 
@@ -430,7 +431,7 @@ export function NewDepartmentDialog({ onClose }: { onClose: () => void }) {
     mutationFn: () =>
       createDepartment({ name: form.name.trim(), color: form.color }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateDepartments();
       toast.success("Departamento criado.");
       onClose();
       navigate({ to: "/departamentos" });

@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Archive, ArchiveRestore, Inbox, Mail, MailOpen, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import {
   NOTIFICATION_LABEL,
@@ -54,7 +54,6 @@ function dayLabel(iso: string) {
 }
 
 function InboxPage() {
-  const qc = useQueryClient();
   const { tasks, members, projects, isLoading } = useWorkspaceData();
   const { notifications, sections, fields, fieldValues, comments, dependencies, taskProjects, attachments } =
     useAsanaData();
@@ -64,7 +63,7 @@ function InboxPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const invalidate = () => qc.invalidateQueries();
+  const invalidate = useInvalidate(["notifications"]);
 
   const read = useMutation({ mutationFn: (id: string) => markNotificationRead(id), onSuccess: invalidate });
 

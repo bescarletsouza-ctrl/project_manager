@@ -50,6 +50,7 @@ import {
   tasksQuery,
   updateProject,
 } from "@/lib/data";
+import { useInvalidate } from "@/lib/useData";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -182,7 +183,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
  * a política de RLS já barra o resto, mas é bom não mostrar botão que erra.
  */
 function SidebarProjectItem({ project, active }: { project: Project; active: boolean }) {
-  const qc = useQueryClient();
+  const invalidateProjects = useInvalidate(["projects"]);
+  // Duplicar/excluir projeto mexe em tarefas/seções/vínculos/automações/campos junto.
+  const invalidateProjectCascade = useInvalidate([
+    "projects",
+    "tasks",
+    "sections",
+    "task_projects",
+    "automations",
+    "custom_fields",
+    "task_field_values",
+  ]);
   const navigate = useNavigate();
   const { isAdmin } = useAccessRole();
   const [editing, setEditing] = useState(false);
@@ -193,7 +204,7 @@ function SidebarProjectItem({ project, active }: { project: Project; active: boo
   const rename = useMutation({
     mutationFn: (name: string) => updateProject(project.id, { name }),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjects();
       setEditing(false);
     },
     onError: () => {
@@ -205,7 +216,7 @@ function SidebarProjectItem({ project, active }: { project: Project; active: boo
   const dup = useMutation({
     mutationFn: () => duplicateProject(project.id),
     onSuccess: (newId) => {
-      qc.invalidateQueries();
+      invalidateProjectCascade();
       toast.success("Projeto duplicado.");
       navigate({ to: "/projetos/$projectId", params: { projectId: newId } });
     },
@@ -216,7 +227,7 @@ function SidebarProjectItem({ project, active }: { project: Project; active: boo
   const remove = useMutation({
     mutationFn: () => deleteProject(project.id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateProjectCascade();
       toast.success("Projeto excluído.");
       if (active) navigate({ to: "/projetos" });
     },

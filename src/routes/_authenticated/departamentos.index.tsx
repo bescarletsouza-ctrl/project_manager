@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Building2, Pencil, Trash2 } from "lucide-react";
 import { EmptyState, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
 import { createDepartment, deleteDepartment, departmentsQuery, updateDepartment } from "@/lib/data";
 import { sectionsQuery } from "@/lib/asana";
-import { useWorkspaceData } from "@/lib/useData";
+import { useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useQuery } from "@tanstack/react-query";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,8 @@ export const Route = createFileRoute("/_authenticated/departamentos/")({
 const COLORS = ["blue", "indigo", "violet", "emerald", "amber", "rose", "slate", "cyan"];
 
 function DepartmentsPage() {
-  const qc = useQueryClient();
+  const invalidateDept = useInvalidate(["departments"]);
+  const invalidateDeptCascade = useInvalidate(["departments", "sections", "tasks"]);
   const { departments, members, tasks, projects, isLoading } = useWorkspaceData();
   const sections = useQuery(sectionsQuery).data ?? [];
   const [form, setForm] = useState({ name: "", color: "blue" });
@@ -45,7 +46,7 @@ function DepartmentsPage() {
     mutationFn: () => createDepartment({ name: form.name.trim(), color: form.color }),
     onSuccess: () => {
       setForm({ name: "", color: "blue" });
-      qc.invalidateQueries();
+      invalidateDept();
       toast.success("Departamento criado.");
     },
     onError: (e: unknown) => toast.error(`Não foi possível criar: ${(e as Error)?.message ?? "erro"}`),
@@ -56,7 +57,7 @@ function DepartmentsPage() {
       updateDepartment(f.id, { name: f.name.trim(), color: f.color }),
     onSuccess: () => {
       setEditing(null);
-      qc.invalidateQueries();
+      invalidateDept();
       toast.success("Departamento atualizado.");
     },
     onError: () => toast.error("Não foi possível atualizar."),
@@ -65,7 +66,7 @@ function DepartmentsPage() {
   const remove = useMutation({
     mutationFn: (id: string) => deleteDepartment(id),
     onSuccess: () => {
-      qc.invalidateQueries();
+      invalidateDeptCascade();
       toast.success("Departamento removido.");
     },
     onError: () => toast.error("Não foi possível remover."),
