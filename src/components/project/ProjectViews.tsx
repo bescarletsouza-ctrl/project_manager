@@ -66,6 +66,12 @@ export type ViewProps = {
   projectId: string;
   project: Project;
   sections: Section[];
+  /**
+   * Lista COMPLETA de seções do workspace (não só do projeto) — a coluna
+   * "Seção" da grade precisa mostrar/editar a seção real da tarefa mesmo
+   * quando ela é de um departamento (mesma mescla que o TaskPane já faz).
+   */
+  allSections: Section[];
   tasks: Task[];
   members: Member[];
   departments: Department[];
@@ -628,7 +634,7 @@ function sortValue(
   key: SortKey,
   members: Member[],
   departments: Department[],
-  sections: Section[],
+  allSections: Section[],
 ): string {
   switch (key) {
     case "title":
@@ -648,7 +654,7 @@ function sortValue(
     case "department":
       return (departments.find((d) => d.id === task.department_id)?.name ?? "zzz").toLowerCase();
     case "section":
-      return (sections.find((s) => s.id === task.section_id)?.name ?? "zzz").toLowerCase();
+      return (allSections.find((s) => s.id === task.section_id)?.name ?? "zzz").toLowerCase();
     default:
       return "";
   }
@@ -990,18 +996,24 @@ function TaskCells({
   columns,
   members,
   departments,
-  sections,
+  allSections,
   cols,
 }: {
   task: Task;
   columns: string[];
   members: Member[];
   departments: Department[];
-  sections: Section[];
+  allSections: Section[];
   cols: ColumnWidths;
 }) {
   const patch = useTaskPatch(task);
   const has = (id: string) => columns.includes(id);
+  /** Mesma mescla do TaskPane: seções do projeto E do departamento da tarefa. */
+  const taskSections = allSections.filter(
+    (s) =>
+      (task.project_id != null && s.project_id === task.project_id) ||
+      (task.department_id != null && s.department_id === task.department_id),
+  );
 
   /** Mesma largura e mesmo breakpoint do cabeçalho, senão as colunas desalinham. */
   const cell = (id: string, bp: string, children: React.ReactNode, className?: string) => (
@@ -1047,7 +1059,7 @@ function TaskCells({
             label="Seção"
             value={task.section_id ?? ""}
             onChange={(v) => patch.mutate({ section_id: v || null })}
-            options={[{ value: "", label: "Sem seção" }, ...sections.map((s) => ({ value: s.id, label: s.name }))]}
+            options={[{ value: "", label: "Sem seção" }, ...taskSections.map((s) => ({ value: s.id, label: s.name }))]}
           />,
         )}
       {has("priority") &&
@@ -1613,6 +1625,7 @@ export function ListView({
   projectId,
   project,
   sections,
+  allSections,
   tasks,
   members,
   departments,
@@ -1677,8 +1690,8 @@ export function ListView({
         .slice()
         .sort(
           (a, b) =>
-            sortValue(a, sort.key, members, departments, sections).localeCompare(
-              sortValue(b, sort.key, members, departments, sections),
+            sortValue(a, sort.key, members, departments, allSections).localeCompare(
+              sortValue(b, sort.key, members, departments, allSections),
             ) * factor,
         );
     }
@@ -1924,7 +1937,7 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} cols={cols} />
+                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} cols={cols} />
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -1966,7 +1979,7 @@ export function ListView({
                               >
                                 {s.title}
                               </button>
-                              <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} cols={cols} />
+                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} cols={cols} />
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>

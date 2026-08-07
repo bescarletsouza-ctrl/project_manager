@@ -320,6 +320,10 @@ function ProjectDetail() {
     projectId,
     project,
     sections: projectSections,
+    // Lista completa de seções do workspace — a coluna "Seção" da Lista
+    // precisa mostrar/editar seções de departamento também (mesma mescla
+    // que o TaskPane já faz), não só as do projeto.
+    allSections: sections,
     tasks: filtered,
     members,
     departments,
