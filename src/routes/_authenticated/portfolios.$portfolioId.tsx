@@ -11,9 +11,9 @@ import { PROJECT_STATUS_LABEL, projectHealth } from "@/lib/domain";
 export const Route = createFileRoute("/_authenticated/portfolios/$portfolioId")({
   head: () => ({
     meta: [
-      { title: "Portfólio — projetos agrupados — Fluxo" },
+      { title: "Portfólio — projetos agrupados — Alana" },
       { name: "description", content: "Progresso, riscos e prazos dos projetos que compõem este portfólio." },
-      { property: "og:title", content: "Portfólio — Fluxo" },
+      { property: "og:title", content: "Portfólio — Alana" },
       { property: "og:description", content: "Acompanhe todos os projetos de um portfólio em uma única visão." },
     ],
   }),

@@ -13,13 +13,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/projetos/")({
   head: () => ({
     meta: [
-      { title: "Projetos e saúde da operação — Fluxo" },
+      { title: "Projetos e saúde da operação — Alana" },
       {
         name: "description",
         content:
           "Acompanhe projetos por cliente, departamento e gestor, com progresso automático e indicador de saúde.",
       },
-      { property: "og:title", content: "Projetos — Fluxo" },
+      { property: "og:title", content: "Projetos — Alana" },
       { property: "og:description", content: "Progresso automático, riscos e prazos de cada projeto." },
     ],
   }),

@@ -6,13 +6,13 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Entrar — Fluxo | Gestão de projetos e produtividade" },
+      { title: "Entrar — Alana | Gestão de projetos e produtividade" },
       {
         name: "description",
         content:
-          "Acesse o Fluxo para gerenciar projetos, tarefas e acompanhar a produtividade da sua equipe.",
+          "Acesse a Alana para gerenciar projetos, tarefas e acompanhar a produtividade da sua equipe.",
       },
-      { property: "og:title", content: "Entrar no Fluxo" },
+      { property: "og:title", content: "Entrar na Alana" },
       { property: "og:description", content: "Gestão operacional e inteligência de produtividade." },
     ],
   }),
@@ -109,7 +109,7 @@ function AuthPage() {
           ← Voltar
         </Link>
         <h1 className="mt-4 text-xl font-semibold tracking-tight">
-          {mode === "login" ? "Entrar no Fluxo" : "Criar sua conta"}
+          {mode === "login" ? "Entrar na Alana" : "Criar sua conta"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Gestão de projetos com inteligência de produtividade.

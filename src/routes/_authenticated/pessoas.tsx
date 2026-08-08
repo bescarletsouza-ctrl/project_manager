@@ -22,13 +22,13 @@ export const Route = createFileRoute("/_authenticated/pessoas")({
   beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
-      { title: "Produtividade por colaborador — Fluxo" },
+      { title: "Produtividade por colaborador — Alana" },
       {
         name: "description",
         content:
           "Painel individual de produtividade: entregas, pontos de complexidade, prazos, retrabalho e velocidade.",
       },
-      { property: "og:title", content: "Produtividade por colaborador — Fluxo" },
+      { property: "og:title", content: "Produtividade por colaborador — Alana" },
       { property: "og:description", content: "Complexidade, prazos, retrabalho e capacidade — sem controle de horas." },
     ],
   }),

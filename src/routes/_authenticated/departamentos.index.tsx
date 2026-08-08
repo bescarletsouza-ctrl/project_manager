@@ -19,13 +19,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/departamentos/")({
   head: () => ({
     meta: [
-      { title: "Departamentos — tarefas por área — Fluxo" },
+      { title: "Departamentos — tarefas por área — Alana" },
       {
         name: "description",
         content:
           "Organize as tarefas por departamento com seções próprias, sem depender de um projeto.",
       },
-      { property: "og:title", content: "Departamentos — Fluxo" },
+      { property: "og:title", content: "Departamentos — Alana" },
       { property: "og:description", content: "Cada área com suas próprias tarefas e seções." },
     ],
   }),

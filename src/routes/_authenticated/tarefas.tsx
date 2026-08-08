@@ -28,13 +28,13 @@ import {
 export const Route = createFileRoute("/_authenticated/tarefas")({
   head: () => ({
     meta: [
-      { title: "Tarefas e Kanban — Fluxo" },
+      { title: "Tarefas e Kanban — Alana" },
       {
         name: "description",
         content:
           "Gerencie tarefas em lista ou kanban, com histórico de movimentações e tempos calculados automaticamente.",
       },
-      { property: "og:title", content: "Tarefas e Kanban — Fluxo" },
+      { property: "og:title", content: "Tarefas e Kanban — Alana" },
       { property: "og:description", content: "Fluxo de status, prazos, complexidade e histórico completo." },
     ],
   }),

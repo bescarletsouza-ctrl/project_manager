@@ -16,12 +16,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/minhas-tarefas")({
   head: () => ({
     meta: [
-      { title: "Minhas Tarefas — o que fazer hoje — Fluxo" },
+      { title: "Minhas Tarefas — o que fazer hoje — Alana" },
       {
         name: "description",
         content: "Suas tarefas organizadas por Hoje, Próximos dias e Depois, com prazos, marcos e bloqueios.",
       },
-      { property: "og:title", content: "Minhas Tarefas — Fluxo" },
+      { property: "og:title", content: "Minhas Tarefas — Alana" },
       { property: "og:description", content: "Sua lista pessoal: hoje, próximos dias e depois." },
     ],
   }),

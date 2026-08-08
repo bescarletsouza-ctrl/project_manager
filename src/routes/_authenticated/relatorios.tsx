@@ -42,13 +42,13 @@ export const Route = createFileRoute("/_authenticated/relatorios")({
   beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
-      { title: "Relatórios operacionais — Fluxo" },
+      { title: "Relatórios operacionais — Alana" },
       {
         name: "description",
         content:
           "Lead time, cycle time, throughput, velocity, SLA, retrabalho e produtividade por equipe, projeto e cliente.",
       },
-      { property: "og:title", content: "Relatórios operacionais — Fluxo" },
+      { property: "og:title", content: "Relatórios operacionais — Alana" },
       { property: "og:description", content: "Indicadores completos e exportação em CSV." },
     ],
   }),

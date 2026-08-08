@@ -4,13 +4,13 @@ import { ArrowRight, BarChart3, Gauge, Timer, Users } from "lucide-react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Fluxo — Gestão de projetos com relatórios de produtividade" },
+      { title: "Alana — Gestão de projetos com relatórios de produtividade" },
       {
         name: "description",
         content:
           "Gerencie projetos, tarefas e equipes com métricas automáticas de produtividade por colaborador, equipe, projeto e departamento.",
       },
-      { property: "og:title", content: "Fluxo — Gestão de projetos com relatórios de produtividade" },
+      { property: "og:title", content: "Alana — Gestão de projetos com relatórios de produtividade" },
       {
         property: "og:description",
         content: "Gerencie projetos, tarefas e equipes com métricas automáticas de produtividade por colaborador, equipe, projeto e departamento.",
@@ -48,8 +48,8 @@ function Landing() {
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2">
-          <div className="size-7 rounded-md bg-primary" />
-          <span className="font-semibold tracking-tight">Fluxo</span>
+          <img src="/alana-icon.png" alt="Alana" className="size-7 rounded-md object-cover" />
+          <span className="font-semibold tracking-tight">Alana</span>
         </div>
         <Link
           to="/auth"
@@ -66,7 +66,7 @@ function Landing() {
             Produtividade medida pelo trabalho real, não por planilhas de horas.
           </h1>
           <p className="mt-5 max-w-2xl text-lg text-muted-foreground">
-            O Fluxo acompanha cada movimentação das tarefas e transforma isso em relatórios de produtividade por
+            A Alana acompanha cada movimentação das tarefas e transforma isso em relatórios de produtividade por
             colaborador, equipe, projeto e departamento.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">

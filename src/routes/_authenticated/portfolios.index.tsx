@@ -12,12 +12,12 @@ import { projectHealth } from "@/lib/domain";
 export const Route = createFileRoute("/_authenticated/portfolios/")({
   head: () => ({
     meta: [
-      { title: "Portfólios — visão executiva dos projetos — Fluxo" },
+      { title: "Portfólios — visão executiva dos projetos — Alana" },
       {
         name: "description",
         content: "Agrupe projetos em portfólios e acompanhe progresso, riscos e prazos de cada frente da operação.",
       },
-      { property: "og:title", content: "Portfólios — Fluxo" },
+      { property: "og:title", content: "Portfólios — Alana" },
       { property: "og:description", content: "Visão executiva: progresso e saúde de cada conjunto de projetos." },
     ],
   }),

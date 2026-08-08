@@ -30,13 +30,13 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
   beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin"]),
   head: () => ({
     meta: [
-      { title: "Configurações — acessos, equipe e departamentos | Fluxo" },
+      { title: "Configurações — acessos, equipe e departamentos | Alana" },
       {
         name: "description",
         content:
           "Gerencie acessos, papéis da equipe, departamentos e clientes do workspace em um único painel de configuração.",
       },
-      { property: "og:title", content: "Configurações do workspace — Fluxo" },
+      { property: "og:title", content: "Configurações do workspace — Alana" },
       {
         property: "og:description",
         content: "Acessos, equipe, departamentos e clientes em um só lugar.",

@@ -47,13 +47,13 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
-      { title: "Dashboard executivo — Fluxo" },
+      { title: "Dashboard executivo — Alana" },
       {
         name: "description",
         content:
           "Indicadores de projetos, tarefas, prazos, gargalos e produtividade da operação em tempo real.",
       },
-      { property: "og:title", content: "Dashboard executivo — Fluxo" },
+      { property: "og:title", content: "Dashboard executivo — Alana" },
       { property: "og:description", content: "Visão geral da operação e da produtividade da equipe." },
     ],
   }),

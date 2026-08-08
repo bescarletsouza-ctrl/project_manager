@@ -363,10 +363,8 @@ function SidebarContent({
     <div className="flex h-full w-full flex-col">
       <div className={cn("flex h-14 items-center gap-2.5 px-3", collapsed && "justify-center px-0")}>
         <Link to="/minhas-tarefas" className="flex items-center gap-2.5" aria-label="Início">
-          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-brand text-[13px] font-bold text-brand-foreground">
-            F
-          </span>
-          {!collapsed && <span className="text-[15px] font-semibold tracking-tight">Fluxo</span>}
+          <img src="/alana-icon.png" alt="Alana" className="size-7 shrink-0 rounded-md object-cover" />
+          {!collapsed && <span className="text-[15px] font-semibold tracking-tight">Alana</span>}
         </Link>
         {!collapsed && onClose && (
           <button onClick={onClose} aria-label="Fechar menu" className="btn btn-ghost ml-auto p-1.5">

@@ -13,13 +13,13 @@ export const Route = createFileRoute("/_authenticated/workload")({
   beforeLoad: ({ context }) => requireRole(context.queryClient, ["admin", "visualizador"]),
   head: () => ({
     meta: [
-      { title: "Workload e capacidade da equipe — Fluxo" },
+      { title: "Workload e capacidade da equipe — Alana" },
       {
         name: "description",
         content:
           "Veja a carga de trabalho por colaborador em pontos de complexidade e redistribua tarefas em um clique.",
       },
-      { property: "og:title", content: "Workload e capacidade — Fluxo" },
+      { property: "og:title", content: "Workload e capacidade — Alana" },
       { property: "og:description", content: "Carga por complexidade, prazos e redistribuição de demandas." },
     ],
   }),

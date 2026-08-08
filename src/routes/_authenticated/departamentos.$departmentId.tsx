@@ -43,13 +43,13 @@ import { AssigneePicker, DeadlinePill, InlineSelect, InlineText, TagPicker } fro
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
   head: () => ({
     meta: [
-      { title: "Departamento — Quadro de tarefas — Fluxo" },
+      { title: "Departamento — Quadro de tarefas — Alana" },
       {
         name: "description",
         content:
           "Quadro Kanban do departamento com seções próprias e tarefas atribuídas a pessoas.",
       },
-      { property: "og:title", content: "Departamento — Fluxo" },
+      { property: "og:title", content: "Departamento — Alana" },
       { property: "og:description", content: "Tarefas organizadas por seção, sem depender de projeto." },
     ],
   }),

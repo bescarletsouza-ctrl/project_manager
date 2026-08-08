@@ -22,12 +22,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/caixa-de-entrada")({
   head: () => ({
     meta: [
-      { title: "Caixa de entrada — atividades e menções — Fluxo" },
+      { title: "Caixa de entrada — atividades e menções — Alana" },
       {
         name: "description",
         content: "Atribuições, menções, comentários e mudanças de status das suas tarefas em um único lugar.",
       },
-      { property: "og:title", content: "Caixa de entrada — Fluxo" },
+      { property: "og:title", content: "Caixa de entrada — Alana" },
       { property: "og:description", content: "Tudo o que aconteceu nas suas tarefas, em ordem cronológica." },
     ],
   }),

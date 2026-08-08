@@ -55,13 +55,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/projetos/$projectId")({
   head: () => ({
     meta: [
-      { title: "Projeto — Lista, Quadro, Timeline e Calendário — Fluxo" },
+      { title: "Projeto — Lista, Quadro, Timeline e Calendário — Alana" },
       {
         name: "description",
         content:
           "Gerencie o projeto em Lista, Quadro, Timeline ou Calendário, com seções, subtarefas, dependências, marcos, colunas configuráveis e automações.",
       },
-      { property: "og:title", content: "Projeto — Fluxo" },
+      { property: "og:title", content: "Projeto — Alana" },
       { property: "og:description", content: "Colunas configuráveis, automações, dependências e campos personalizados." },
     ],
   }),
