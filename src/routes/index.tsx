@@ -48,7 +48,9 @@ function Landing() {
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2">
-          <img src="/alana-icon.png" alt="Alana" className="size-7 rounded-md object-cover" />
+          <span className="block size-7 overflow-hidden rounded-full">
+            <img src="/alana-icon.png" alt="Alana" className="h-full w-full scale-125 object-cover" />
+          </span>
           <span className="font-semibold tracking-tight">Alana</span>
         </div>
         <Link
