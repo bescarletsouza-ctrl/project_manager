@@ -1506,6 +1506,7 @@ function TaskContextMenu({
   allSections,
   automations,
   onOpen,
+  onRenameStart,
   children,
   currentMemberId = null,
 }: {
@@ -1515,6 +1516,7 @@ function TaskContextMenu({
   allSections: Section[];
   automations: Automation[];
   onOpen: () => void;
+  onRenameStart?: () => void;
   children: React.ReactNode;
   currentMemberId?: string | null;
 }) {
@@ -1564,6 +1566,14 @@ function TaskContextMenu({
         <ContextMenuItem onSelect={onOpen} className="gap-2 text-sm">
           Abrir tarefa
         </ContextMenuItem>
+        {onRenameStart && (
+          <ContextMenuItem
+            onSelect={() => requestAnimationFrame(onRenameStart)}
+            className="gap-2 text-sm"
+          >
+            Renomear
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={() => duplicate.mutate()} className="gap-2 text-sm">
           Duplicar
         </ContextMenuItem>
@@ -1793,6 +1803,13 @@ export function ListView({
     useSectionMutations(projectId, project, automations, tasks, allSections);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const invalidateTaskTitle = useInvalidate(["tasks"]);
+  const renameTask = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => updateTask(id, { title }),
+    onSuccess: () => invalidateTaskTitle(),
+    onError: () => toast.error("Não foi possível renomear."),
+  });
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
   const cols = useColumnWidths(projectId);
@@ -2014,6 +2031,7 @@ export function ListView({
                           allSections={allSections}
                           automations={automations}
                           onOpen={() => onOpenTask(t)}
+                          onRenameStart={() => setEditingTaskId(t.id)}
                           currentMemberId={currentMemberId}
                         >
                         <div
@@ -2047,38 +2065,59 @@ export function ListView({
                             />
                           </span>
                           <TaskToggle task={t} automations={automations} />
-                          <button
-                            onClick={() => onOpenTask(t)}
-                            style={{ minWidth: TITLE_MIN_WIDTH }}
-                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                          >
-                            {subs.length > 0 && (
-                              <ChevronRight
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpanded((x) => ({ ...x, [t.id]: !open }));
-                                }}
-                                className={cn(
-                                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                                  open && "rotate-90",
-                                )}
-                              />
-                            )}
-                            {t.is_milestone && <Flag className="size-3.5 shrink-0 text-warning" />}
-                            <span
-                              className={cn(
-                                "truncate text-sm",
-                                t.status === "concluido" && "text-muted-foreground line-through",
-                              )}
+                          {editingTaskId === t.id ? (
+                            <input
+                              autoFocus
+                              defaultValue={t.title}
+                              maxLength={140}
+                              style={{ minWidth: TITLE_MIN_WIDTH }}
+                              onClick={(e) => e.stopPropagation()}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v.length >= 2 && v !== t.title) renameTask.mutate({ id: t.id, title: v });
+                                setEditingTaskId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                if (e.key === "Escape") setEditingTaskId(null);
+                              }}
+                              className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => onOpenTask(t)}
+                              style={{ minWidth: TITLE_MIN_WIDTH }}
+                              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                             >
-                              {t.title}
-                            </span>
-                            {subs.length > 0 && (
-                              <Pill>
-                                {subs.filter((s) => s.status === "concluido").length}/{subs.length}
-                              </Pill>
-                            )}
-                          </button>
+                              {subs.length > 0 && (
+                                <ChevronRight
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpanded((x) => ({ ...x, [t.id]: !open }));
+                                  }}
+                                  className={cn(
+                                    "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                                    open && "rotate-90",
+                                  )}
+                                />
+                              )}
+                              {t.is_milestone && <Flag className="size-3.5 shrink-0 text-warning" />}
+                              <span
+                                className={cn(
+                                  "truncate text-sm",
+                                  t.status === "concluido" && "text-muted-foreground line-through",
+                                )}
+                              >
+                                {t.title}
+                              </span>
+                              {subs.length > 0 && (
+                                <Pill>
+                                  {subs.filter((s) => s.status === "concluido").length}/{subs.length}
+                                </Pill>
+                              )}
+                            </button>
+                          )}
                           <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
                             <DeadlinePill task={t} />
                           </span>
@@ -2112,6 +2151,7 @@ export function ListView({
                               allSections={allSections}
                               automations={automations}
                               onOpen={() => onOpenTask(s)}
+                              onRenameStart={() => setEditingTaskId(s.id)}
                               currentMemberId={currentMemberId}
                             >
                             <div
@@ -2132,16 +2172,37 @@ export function ListView({
                                 />
                               </span>
                               <TaskToggle task={s} automations={automations} size="sm" />
-                              <button
-                                onClick={() => onOpenTask(s)}
-                                style={{ minWidth: TITLE_MIN_WIDTH }}
-                                className={cn(
-                                  "min-w-0 flex-1 truncate text-left text-sm",
-                                  s.status === "concluido" && "text-muted-foreground line-through",
-                                )}
-                              >
-                                {s.title}
-                              </button>
+                              {editingTaskId === s.id ? (
+                                <input
+                                  autoFocus
+                                  defaultValue={s.title}
+                                  maxLength={140}
+                                  style={{ minWidth: TITLE_MIN_WIDTH }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim();
+                                    if (v.length >= 2 && v !== s.title) renameTask.mutate({ id: s.id, title: v });
+                                    setEditingTaskId(null);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                    if (e.key === "Escape") setEditingTaskId(null);
+                                  }}
+                                  className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => onOpenTask(s)}
+                                  style={{ minWidth: TITLE_MIN_WIDTH }}
+                                  className={cn(
+                                    "min-w-0 flex-1 truncate text-left text-sm",
+                                    s.status === "concluido" && "text-muted-foreground line-through",
+                                  )}
+                                >
+                                  {s.title}
+                                </button>
+                              )}
                               <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
                                 <DeadlinePill task={s} />
                               </span>
@@ -2205,6 +2266,7 @@ export function BoardView({
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const departmentOf = (id?: string | null) => departments.find((d) => d.id === id) ?? null;
   const invalidateTask = useInvalidate(["tasks"]);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   /** Edição direta de campo do card (ex.: Etiquetas) sem abrir a tarefa. */
   const patchTask = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<Task> }) => updateTask(id, patch),
@@ -2318,6 +2380,7 @@ export function BoardView({
                       allSections={allSections}
                       automations={automations}
                       onOpen={() => onOpenTask(t)}
+                      onRenameStart={() => setEditingTaskId(t.id)}
                       currentMemberId={currentMemberId}
                     >
                     <div
@@ -2329,8 +2392,9 @@ export function BoardView({
                         dnd.setDragTask({ taskId: t.id, sectionId: section.id });
                       }}
                       onDragEnd={() => dnd.setDragTask(null)}
-                      onClick={() => onOpenTask(t)}
+                      onClick={() => editingTaskId !== t.id && onOpenTask(t)}
                       onKeyDown={(e) => {
+                        if (editingTaskId === t.id) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           onOpenTask(t);
@@ -2348,15 +2412,35 @@ export function BoardView({
                       )}
                       <div className="flex items-start gap-2">
                         <TaskToggle task={t} automations={automations} size="sm" />
-                        <span
-                          className={cn(
-                            "flex-1 pr-5 text-sm leading-snug",
-                            t.status === "concluido" && "text-muted-foreground line-through",
-                          )}
-                        >
-                          {t.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
-                          {t.title}
-                        </span>
+                        {editingTaskId === t.id ? (
+                          <input
+                            autoFocus
+                            defaultValue={t.title}
+                            maxLength={140}
+                            onClick={(e) => e.stopPropagation()}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              if (v.length >= 2 && v !== t.title) patchTask.mutate({ id: t.id, patch: { title: v } });
+                              setEditingTaskId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                              if (e.key === "Escape") setEditingTaskId(null);
+                            }}
+                            className="flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            className={cn(
+                              "flex-1 pr-5 text-sm leading-snug",
+                              t.status === "concluido" && "text-muted-foreground line-through",
+                            )}
+                          >
+                            {t.is_milestone && <Flag className="mr-1 inline size-3.5 text-warning" />}
+                            {t.title}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-1">
                         <DeadlinePill task={t} />
