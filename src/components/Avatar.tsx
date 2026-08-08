@@ -30,11 +30,14 @@ const SIZES = {
 export function Avatar({
   name,
   color,
+  src,
   size = "sm",
   className,
 }: {
   name?: string | null | undefined;
   color?: string | undefined;
+  /** Foto de perfil — quando presente, substitui as iniciais. */
+  src?: string | null | undefined;
   size?: keyof typeof SIZES;
   className?: string;
 }) {
@@ -47,6 +50,17 @@ export function Avatar({
     .toUpperCase();
 
   const tone = name ? (COLORS[color ?? ""] ?? COLORS[colorFor(name)]) : null;
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name ?? "Avatar"}
+        title={name ?? undefined}
+        className={cn("inline-block shrink-0 rounded-full object-cover", SIZES[size], className)}
+      />
+    );
+  }
 
   return (
     <span
@@ -69,7 +83,7 @@ export function AvatarStack({
   max = 4,
   size = "sm",
 }: {
-  people: { id: string; name: string; avatar_color?: string }[];
+  people: { id: string; name: string; avatar_color?: string; avatar_url?: string | null }[];
   max?: number;
   size?: keyof typeof SIZES;
 }) {
@@ -82,6 +96,7 @@ export function AvatarStack({
           key={p.id}
           name={p.name}
           color={p.avatar_color}
+          src={p.avatar_url}
           size={size}
           className="-ml-1.5 ring-2 ring-background first:ml-0"
         />

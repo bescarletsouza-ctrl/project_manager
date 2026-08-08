@@ -109,7 +109,7 @@ function MyTasksPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Avatar name={activeMember.name} color={activeMember.avatar_color} size="lg" />
+        <Avatar name={activeMember.name} color={activeMember.avatar_color} src={activeMember.avatar_url} size="lg" />
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Minhas Tarefas</h1>
           <p className="text-sm text-muted-foreground">
@@ -254,6 +254,7 @@ function TaskRow({
       <Avatar
         name={members.find((m) => m.id === task.assignee_id)?.name}
         color={members.find((m) => m.id === task.assignee_id)?.avatar_color}
+        src={members.find((m) => m.id === task.assignee_id)?.avatar_url}
         size="xs"
       />
     </div>

@@ -529,3 +529,39 @@ export async function deleteTaskAttachment(attachment: Pick<TaskAttachment, "id"
     /* arquivo pode já ter sido removido por outro caminho, tudo bem */
   }
 }
+
+/* ---------------- perfil e foto ---------------- */
+
+/** Bucket público (ver migration 20260808120000_perfil_e_foto.sql) — URL direta, sem signed URL. */
+const AVATAR_BUCKET = "avatar-photos";
+
+/** Sobe a foto em <memberId>/<uuid>-<arquivo> e devolve a URL pública. */
+export async function uploadAvatarPhoto(memberId: string, file: File): Promise<string> {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${memberId}/${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type || undefined });
+  if (error) throw error;
+  return supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * Só toca nome/função/contato/foto da PRÓPRIA linha (RPC restrita a essas
+ * colunas — ver migration). Não passa por is_admin(): qualquer pessoa edita
+ * o próprio perfil.
+ */
+export async function updateMyProfile(input: {
+  name: string;
+  job_title: string;
+  phone: string;
+  avatar_url: string | null;
+}) {
+  const { error } = await supabase.rpc("update_my_profile" as never, {
+    p_name: input.name,
+    p_job_title: input.job_title,
+    p_phone: input.phone,
+    p_avatar_url: input.avatar_url,
+  } as never);
+  if (error) throw error;
+}

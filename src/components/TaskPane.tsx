@@ -446,7 +446,11 @@ export function TaskPane({
             <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
               <FieldLabel>Responsável</FieldLabel>
               <div className="flex items-center gap-2">
-                <Avatar name={memberOf(task.assignee_id)?.name} color={memberOf(task.assignee_id)?.avatar_color} />
+                <Avatar
+                  name={memberOf(task.assignee_id)?.name}
+                  color={memberOf(task.assignee_id)?.avatar_color}
+                  src={memberOf(task.assignee_id)?.avatar_url}
+                />
                 <select
                   aria-label="Responsável"
                   className={ctl}
@@ -627,7 +631,12 @@ export function TaskPane({
                         {formatDay(s.due_date)}
                       </span>
                     )}
-                    <Avatar name={memberOf(s.assignee_id)?.name} color={memberOf(s.assignee_id)?.avatar_color} size="xs" />
+                    <Avatar
+                      name={memberOf(s.assignee_id)?.name}
+                      color={memberOf(s.assignee_id)?.avatar_color}
+                      src={memberOf(s.assignee_id)?.avatar_url}
+                      size="xs"
+                    />
                   </li>
                 ))}
               </ul>
@@ -753,7 +762,7 @@ export function TaskPane({
         {/* composer fixo */}
         <div className="shrink-0 border-t border-border bg-card px-5 py-3">
           <div className="flex items-start gap-2">
-            <Avatar name={currentMember?.name} color={currentMember?.avatar_color} />
+            <Avatar name={currentMember?.name} color={currentMember?.avatar_color} src={currentMember?.avatar_url} />
             <textarea
               placeholder="Escreva um comentário. Use @nome para mencionar alguém."
               value={comment}
@@ -991,7 +1000,7 @@ function CommentItem({
 
   return (
     <li className="group flex gap-2">
-      <Avatar name={author?.name} color={author?.avatar_color} />
+      <Avatar name={author?.name} color={author?.avatar_color} src={author?.avatar_url} />
       <div className="min-w-0 flex-1">
         <p className="text-xs">
           <span className="font-medium">{author?.name ?? "Usuário"}</span>

@@ -4,7 +4,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState, MetaItem, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
-import { useInvalidate, useWorkspaceData, nameById, initials, departmentIdsOf } from "@/lib/useData";
+import { Avatar } from "@/components/Avatar";
+import { useInvalidate, useWorkspaceData, nameById, departmentIdsOf } from "@/lib/useData";
 import {
   ACCESS_ROLES,
   ACCESS_ROLE_LABEL,
@@ -290,9 +291,7 @@ function TeamPanel() {
         <div className="space-y-2">
           {members.map((m) => (
             <div key={m.id} className="row-card row-card-hover">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                {initials(m.name)}
-              </span>
+              <Avatar name={m.name} color={m.avatar_color} src={m.avatar_url} size="md" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-medium">{m.name}</p>

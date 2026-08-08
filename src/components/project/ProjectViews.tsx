@@ -998,7 +998,7 @@ export function AssigneePicker({
         onClick={(e) => e.stopPropagation()}
         className="flex items-center gap-0.5 rounded-md px-1 py-0.5 transition-colors hover:bg-secondary"
       >
-        <Avatar name={current?.name} color={current?.avatar_color} size="xs" />
+        <Avatar name={current?.name} color={current?.avatar_color} src={current?.avatar_url} size="xs" />
         <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
@@ -1009,7 +1009,7 @@ export function AssigneePicker({
         </DropdownMenuItem>
         {members.map((m) => (
           <DropdownMenuItem key={m.id} onSelect={() => onChange(m.id)} className="gap-2 text-sm">
-            <Avatar name={m.name} color={m.avatar_color} size="xs" />
+            <Avatar name={m.name} color={m.avatar_color} src={m.avatar_url} size="xs" />
             <span className="truncate">{m.name}</span>
             {m.id === value && <Check className="ml-auto size-3.5 shrink-0" />}
           </DropdownMenuItem>
@@ -1611,7 +1611,7 @@ function TaskContextMenu({
                 onSelect={() => patch.mutate({ assignee_id: m.id })}
                 className="gap-2 text-sm"
               >
-                <Avatar name={m.name} color={m.avatar_color} size="xs" />
+                <Avatar name={m.name} color={m.avatar_color} src={m.avatar_url} size="xs" />
                 <span className="truncate">{m.name}</span>
                 {task.assignee_id === m.id && <Check className="ml-auto size-3.5" />}
               </ContextMenuItem>
@@ -2491,7 +2491,7 @@ export function BoardView({
                         )}
                         {columns.includes("assignee") && (
                           <span className="ml-auto">
-                            <Avatar name={assignee?.name} color={assignee?.avatar_color} />
+                            <Avatar name={assignee?.name} color={assignee?.avatar_color} src={assignee?.avatar_url} />
                           </span>
                         )}
                       </div>
@@ -2620,7 +2620,11 @@ export function TimelineView({
                     <span className="truncate">{shortDate(t.due_date)}</span>
                   </button>
                 </div>
-                <Avatar name={memberOf(t.assignee_id)?.name} color={memberOf(t.assignee_id)?.avatar_color} />
+                <Avatar
+                  name={memberOf(t.assignee_id)?.name}
+                  color={memberOf(t.assignee_id)?.avatar_color}
+                  src={memberOf(t.assignee_id)?.avatar_url}
+                />
               </div>
             );
           })}
@@ -2780,7 +2784,13 @@ export function CalendarView({
                       {t.is_milestone && <Flag className="size-3 shrink-0 text-warning" />}
                       <span className="truncate">{t.title}</span>
                       {assignee && (
-                        <Avatar name={assignee.name} color={assignee.avatar_color} size="xs" className="ml-auto" />
+                        <Avatar
+                          name={assignee.name}
+                          color={assignee.avatar_color}
+                          src={assignee.avatar_url}
+                          size="xs"
+                          className="ml-auto"
+                        />
                       )}
                     </button>
                   );

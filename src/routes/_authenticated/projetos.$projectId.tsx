@@ -690,7 +690,7 @@ function OverviewPanel({
                           month: "short",
                         })}
                       </Pill>
-                      <Avatar name={assignee?.name} color={assignee?.avatar_color} />
+                      <Avatar name={assignee?.name} color={assignee?.avatar_color} src={assignee?.avatar_url} />
                     </button>
                   </li>
                 );
@@ -726,7 +726,7 @@ function OverviewPanel({
               const mine = tasks.filter((t) => t.assignee_id === m.id);
               return (
                 <li key={m.id} className="flex items-center gap-2 text-sm">
-                  <Avatar name={m.name} color={m.avatar_color} />
+                  <Avatar name={m.name} color={m.avatar_color} src={m.avatar_url} />
                   <span className="min-w-0 flex-1 truncate">{m.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {mine.filter(isOpen).length} abertas / {mine.length}

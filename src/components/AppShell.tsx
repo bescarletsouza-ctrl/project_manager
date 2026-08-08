@@ -21,6 +21,7 @@ import {
   Settings,
   Sun,
   Trash2,
+  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import {
   NewProjectDialog,
   NewTaskDialog,
 } from "@/components/dialogs";
+import { MyProfileDialog } from "@/components/MyProfileDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -649,6 +651,7 @@ function TopBar({
   const { dark, toggle } = useTheme();
   const { member, email } = useCurrentMember();
   const { canCreateProject, isVisualizador } = useAccessRole();
+  const [editingProfile, setEditingProfile] = useState(false);
 
   async function signOut() {
     await queryClient.cancelQueries();
@@ -691,7 +694,7 @@ function TopBar({
 
         <DropdownMenu>
           <DropdownMenuTrigger aria-label="Conta" className="rounded-full">
-            <Avatar name={member?.name ?? email ?? null} color={member?.avatar_color} size="md" />
+            <Avatar name={member?.name ?? email ?? null} color={member?.avatar_color} src={member?.avatar_url} size="md" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="truncate">
@@ -699,6 +702,11 @@ function TopBar({
               <span className="block truncate text-xs font-normal text-muted-foreground">{email ?? "—"}</span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {member && (
+              <DropdownMenuItem onSelect={() => setEditingProfile(true)} className="gap-2 text-sm">
+                <UserRound className="size-4" /> Meu perfil
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => navigate({ to: "/configuracoes" })} className="gap-2 text-sm">
               <Settings className="size-4" /> Configurações
             </DropdownMenuItem>
@@ -707,6 +715,9 @@ function TopBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {editingProfile && member && (
+          <MyProfileDialog member={member} onClose={() => setEditingProfile(false)} />
+        )}
       </div>
     </header>
   );

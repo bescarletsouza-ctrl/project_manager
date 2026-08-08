@@ -218,7 +218,7 @@ function InboxPage() {
                         }}
                         className="flex min-w-0 flex-1 items-start gap-3 text-left"
                       >
-                        <Avatar name={actor?.name} color={actor?.avatar_color} />
+                        <Avatar name={actor?.name} color={actor?.avatar_color} src={actor?.avatar_url} />
                         <div className="min-w-0 flex-1">
                           <p className={cn("text-sm", !n.read_at && "font-medium")}>{n.title}</p>
                           {n.body && <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{n.body}</p>}

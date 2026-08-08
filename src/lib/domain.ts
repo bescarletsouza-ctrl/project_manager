@@ -126,6 +126,8 @@ export type Member = {
   capacity_points: number;
   user_id: string | null;
   avatar_color: string;
+  avatar_url: string | null;
+  phone: string | null;
 };
 
 
