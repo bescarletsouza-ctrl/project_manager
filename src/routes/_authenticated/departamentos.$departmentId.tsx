@@ -948,8 +948,12 @@ function TaskCard({
             />
           ) : (
             <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingTitle(true);
+              }}
               className={cn(
-                "flex-1 pr-5 text-sm leading-snug",
+                "flex-1 pr-5 text-sm leading-snug hover:underline",
                 done && "text-muted-foreground line-through",
               )}
             >
@@ -1537,8 +1541,12 @@ function TaskRow({
             />
           ) : (
             <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingTitle(true);
+              }}
               className={cn(
-                "min-w-0 flex-1 truncate text-sm",
+                "min-w-0 flex-1 truncate text-sm hover:underline",
                 done && "text-muted-foreground line-through",
               )}
             >

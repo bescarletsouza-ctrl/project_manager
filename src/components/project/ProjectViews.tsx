@@ -2047,10 +2047,12 @@ export function ListView({
                             e.stopPropagation();
                             dnd.dropOnTask(t.id, section.id, listIds);
                           }}
+                          onClick={() => editingTaskId !== t.id && onOpenTask(t)}
                           className="group flex items-center gap-2 border-t border-border/60 px-3 py-1.5 hover:bg-secondary/40"
                         >
                           <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground opacity-0 group-hover:opacity-50 active:cursor-grabbing" />
                           <span
+                            onClick={(e) => e.stopPropagation()}
                             className={cn(
                               "flex w-4 shrink-0 items-center justify-center transition-opacity",
                               someSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
@@ -2085,11 +2087,7 @@ export function ListView({
                               className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
                             />
                           ) : (
-                            <button
-                              onClick={() => onOpenTask(t)}
-                              style={{ minWidth: TITLE_MIN_WIDTH }}
-                              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                            >
+                            <div style={{ minWidth: TITLE_MIN_WIDTH }} className="flex min-w-0 flex-1 items-center gap-1.5">
                               {subs.length > 0 && (
                                 <ChevronRight
                                   onClick={(e) => {
@@ -2104,8 +2102,12 @@ export function ListView({
                               )}
                               {t.is_milestone && <Flag className="size-3.5 shrink-0 text-warning" />}
                               <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingTaskId(t.id);
+                                }}
                                 className={cn(
-                                  "truncate text-sm",
+                                  "truncate text-sm hover:underline",
                                   t.status === "concluido" && "text-muted-foreground line-through",
                                 )}
                               >
@@ -2116,7 +2118,7 @@ export function ListView({
                                   {subs.filter((s) => s.status === "concluido").length}/{subs.length}
                                 </Pill>
                               )}
-                            </button>
+                            </div>
                           )}
                           <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
                             <DeadlinePill task={t} />
@@ -2126,6 +2128,7 @@ export function ListView({
                               key={f.id}
                               style={{ width: cols.widthOf(`cf:${f.id}`) }}
                               className="shrink-0"
+                              onClick={(e) => e.stopPropagation()}
                             >
                               <CustomFieldCell
                                 taskId={t.id}
@@ -2136,7 +2139,9 @@ export function ListView({
                               />
                             </span>
                           ))}
-                          <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                          <span onClick={(e) => e.stopPropagation()} className="contents">
+                            <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                          </span>
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
                         </TaskContextMenu>
@@ -2155,9 +2160,11 @@ export function ListView({
                               currentMemberId={currentMemberId}
                             >
                             <div
+                              onClick={() => editingTaskId !== s.id && onOpenTask(s)}
                               className="group flex items-center gap-2 border-t border-border/60 bg-secondary/20 py-1.5 pr-3 pl-11"
                             >
                               <span
+                                onClick={(e) => e.stopPropagation()}
                                 className={cn(
                                   "flex w-4 shrink-0 items-center justify-center transition-opacity",
                                   someSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
@@ -2192,21 +2199,26 @@ export function ListView({
                                   className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
                                 />
                               ) : (
-                                <button
-                                  onClick={() => onOpenTask(s)}
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingTaskId(s.id);
+                                  }}
                                   style={{ minWidth: TITLE_MIN_WIDTH }}
                                   className={cn(
-                                    "min-w-0 flex-1 truncate text-left text-sm",
+                                    "min-w-0 flex-1 truncate text-sm hover:underline",
                                     s.status === "concluido" && "text-muted-foreground line-through",
                                   )}
                                 >
                                   {s.title}
-                                </button>
+                                </span>
                               )}
                               <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
                                 <DeadlinePill task={s} />
                               </span>
-                              <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                              <span onClick={(e) => e.stopPropagation()} className="contents">
+                                <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                              </span>
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
                             </TaskContextMenu>
@@ -2432,8 +2444,12 @@ export function BoardView({
                           />
                         ) : (
                           <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTaskId(t.id);
+                            }}
                             className={cn(
-                              "flex-1 pr-5 text-sm leading-snug",
+                              "flex-1 pr-5 text-sm leading-snug hover:underline",
                               t.status === "concluido" && "text-muted-foreground line-through",
                             )}
                           >
