@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bar as RBar,
@@ -95,10 +95,15 @@ function Dashboard() {
   const [dateTo, setDateTo] = useState(todayIso());
   const [activePreset, setActivePreset] = useState("30");
   const [selection, setSelection] = useState<Selection>(null);
+  const drilldownRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => filterByDate(tasks, dateFrom, dateTo), [tasks, dateFrom, dateTo]);
 
   const openSelection = (title: string, list: Task[]) => setSelection({ title, tasks: list });
+
+  useEffect(() => {
+    if (selection) drilldownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selection]);
 
   if (isLoading) return <SkeletonGrid />;
 
@@ -201,6 +206,10 @@ function Dashboard() {
             />
           </label>
         </div>
+      </div>
+
+      <div ref={drilldownRef}>
+        <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -337,8 +346,6 @@ function Dashboard() {
           onSelect={openSelection}
         />
       </div>
-
-      <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
 
       <PeriodComparePanel tasks={tasks} />
 

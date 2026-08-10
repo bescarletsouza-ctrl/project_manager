@@ -1,10 +1,27 @@
 import { useMemo, useState } from "react";
-import { Bar as RBar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Bar as RBar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { SectionTitle } from "@/components/ui-bits";
 import type { Section } from "@/lib/asana";
 import type { Task } from "@/lib/domain";
 
-const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+const CHART_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+];
+
+const ALL_CONTAINERS = "__all__";
 
 /** Tarefas por seção (etapa) de um departamento ou projeto — com seletor e filtro de data próprios. */
 export function SectionsChart({
@@ -42,9 +59,26 @@ export function SectionsChart({
   );
 
   const bySection = useMemo(() => {
+    if (activeId === ALL_CONTAINERS) {
+      return sections
+        .filter((s) => (containerKey === "department_id" ? s.department_id : s.project_id) != null)
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((s) => {
+          const ownerId = containerKey === "department_id" ? s.department_id : s.project_id;
+          const ownerName = containers.find((c) => c.id === ownerId)?.name;
+          return {
+            id: s.id,
+            name: ownerName ? `${ownerName} — ${s.name}` : s.name,
+            total: filtered.filter((t) => t.section_id === s.id).length,
+          };
+        });
+    }
     if (!activeId) return [];
     const containerSections = sections
-      .filter((s) => (containerKey === "department_id" ? s.department_id === activeId : s.project_id === activeId))
+      .filter((s) =>
+        containerKey === "department_id" ? s.department_id === activeId : s.project_id === activeId,
+      )
       .slice()
       .sort((a, b) => a.position - b.position);
     return containerSections.map((s) => ({
@@ -52,7 +86,7 @@ export function SectionsChart({
       name: s.name,
       total: filtered.filter((t) => t.section_id === s.id).length,
     }));
-  }, [activeId, sections, containerKey, filtered]);
+  }, [activeId, sections, containerKey, containers, filtered]);
 
   const inputCls = "rounded-md border border-input bg-background px-2 py-1 text-xs";
 
@@ -67,6 +101,7 @@ export function SectionsChart({
             className={inputCls}
             aria-label={containerLabel}
           >
+            <option value={ALL_CONTAINERS}>Todos</option>
             {containers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -75,11 +110,21 @@ export function SectionsChart({
           </select>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             De
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className={inputCls}
+            />
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             Até
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className={inputCls}
+            />
           </label>
           {(from || to) && (
             <button
@@ -109,7 +154,13 @@ export function SectionsChart({
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" fontSize={11} stroke="var(--muted-foreground)" />
               <YAxis fontSize={11} allowDecimals={false} stroke="var(--muted-foreground)" />
-              <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--popover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                }}
+              />
               <RBar
                 dataKey="total"
                 name="Tarefas"
@@ -118,7 +169,10 @@ export function SectionsChart({
                 onClick={(d: unknown) => {
                   const row = d as { payload?: { id: string; name: string } };
                   if (row.payload) {
-                    onSelect(`Seção — ${row.payload.name}`, filtered.filter((t) => t.section_id === row.payload!.id));
+                    onSelect(
+                      `Seção — ${row.payload.name}`,
+                      filtered.filter((t) => t.section_id === row.payload!.id),
+                    );
                   }
                 }}
               >
