@@ -7,6 +7,7 @@ import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import { DeadlinePill } from "@/components/project/ProjectViews";
+import { RichTextView } from "@/components/RichTextEditor";
 import { notifyAssignment } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import {
@@ -315,7 +316,9 @@ function TaskDrawer({
             </button>
           </div>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">{task.description}</p>
+        {task.description && (
+          <RichTextView html={task.description} className="mt-2 text-muted-foreground" />
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <Field label="Projeto" value={projects.find((p) => p.id === task.project_id)?.name ?? "—"} />

@@ -18,6 +18,7 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
 import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   createTask,
   departmentsQuery,
@@ -598,13 +599,13 @@ export function TaskPane({
 
             <div>
               <FieldLabel>Descrição</FieldLabel>
-              <textarea
-                placeholder="Do que se trata esta tarefa?"
-                maxLength={2000}
+              <RichTextEditor
+                resetKey={task.id}
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={setDescription}
                 onBlur={() => description !== (task.description ?? "") && patch.mutate({ description })}
-                className={cn(ctl, "mt-1 min-h-24 resize-y")}
+                placeholder="Do que se trata esta tarefa?"
+                className="mt-1"
               />
             </div>
 
