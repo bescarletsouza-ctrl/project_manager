@@ -10,10 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { SectionTitle } from "@/components/ui-bits";
-import { isLate, isOpen, type Task } from "@/lib/domain";
-
-/** Janela de "vencendo em breve" — a partir de hoje, quantos dias contam como alerta amarelo. */
-const DUE_SOON_DAYS = 3;
+import { isDueSoon, isLate, isOpen, type Task } from "@/lib/domain";
 
 type Bucket = "no_prazo" | "vencendo" | "atrasado";
 
@@ -23,17 +20,9 @@ const BUCKET_META: Record<Bucket, { label: string; color: string }> = {
   atrasado: { label: "Atrasado", color: "var(--destructive)" },
 };
 
-function isoDaysFromNow(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 function bucketOf(t: Task): Bucket {
   if (isLate(t)) return "atrasado";
-  if (t.due_date && t.due_date >= isoDaysFromNow(0) && t.due_date <= isoDaysFromNow(DUE_SOON_DAYS))
-    return "vencendo";
+  if (isDueSoon(t)) return "vencendo";
   return "no_prazo";
 }
 

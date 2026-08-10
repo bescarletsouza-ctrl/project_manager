@@ -23,7 +23,7 @@ import { PeriodComparePanel } from "@/components/dashboard/PeriodComparePanel";
 import { SectionsChart } from "@/components/dashboard/SectionsChart";
 import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useWorkspaceData, nameById, departmentIdsOf } from "@/lib/useData";
 import { sectionsQuery } from "@/lib/asana";
 import {
   STATUS_META,
@@ -36,10 +36,14 @@ import {
   isLate,
   isOpen,
   leadTime,
+  maxOpenTasksPerDay,
   pct,
   personMetrics,
   projectHealth,
   timeToStart,
+  type Department,
+  type Member,
+  type MemberDepartment,
   type Task,
   type TaskStatus,
 } from "@/lib/domain";
@@ -60,6 +64,10 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   }),
   component: Dashboard,
 });
+
+/** Departamento com regra de sobrecarga própria: mais de N tarefas vencendo no mesmo dia, em vez de pontos/capacidade. */
+const DUE_SAME_DAY_OVERLOAD_DEPARTMENT = "Design";
+const DUE_SAME_DAY_OVERLOAD_THRESHOLD = 4;
 
 const PERIODS = [
   { key: "7", label: "7 dias", days: 7 },
@@ -88,7 +96,7 @@ function filterByDate(tasks: Task[], from: string, to: string) {
 }
 
 function Dashboard() {
-  const { tasks, projects, members, departments, events, isLoading } = useWorkspaceData();
+  const { tasks, projects, members, departments, memberDepartments, events, isLoading } = useWorkspaceData();
   const sectionsQ = useQuery(sectionsQuery);
   const sections = sectionsQ.data ?? [];
   const [dateFrom, setDateFrom] = useState(daysAgoIso(30));
@@ -137,11 +145,7 @@ function Dashboard() {
       .filter((x) => x.h.score < 70)
       .sort((a, b) => a.h.score - b.h.score)
       .slice(0, 4),
-    overloaded: members
-      .map((m) => personMetrics(m, tasks))
-      .filter((m) => m.load >= 0.85)
-      .sort((a, b) => b.load - a.load)
-      .slice(0, 4),
+    overloaded: computeOverloaded(members, tasks, departments, memberDepartments),
   };
 
   const chartColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
@@ -393,12 +397,10 @@ function Dashboard() {
               <li key={m.member.id} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span className="truncate">{m.member.name}</span>
-                  <Pill tone={m.load >= 1.15 ? "danger" : "warning"}>{m.loadLabel}</Pill>
+                  <Pill tone={m.tone}>{m.label}</Pill>
                 </div>
-                <Bar value={m.load * 100} />
-                <p className="text-xs text-muted-foreground">
-                  {m.open} tarefas abertas · {m.openPoints} pts / {m.member.capacity_points} pts
-                </p>
+                <Bar value={m.barValue} />
+                <p className="text-xs text-muted-foreground">{m.detail}</p>
               </li>
             ))}
             {attention.overloaded.length === 0 && (
@@ -449,6 +451,44 @@ function Dashboard() {
       </p>
     </div>
   );
+}
+
+/**
+ * Sobrecarga por pessoa: departamento Design usa regra própria (mais de N tarefas
+ * vencendo no mesmo dia), os demais usam a regra padrão de pontos/capacidade.
+ */
+function computeOverloaded(members: Member[], tasks: Task[], departments: Department[], memberDepartments: MemberDepartment[]) {
+  const designDept = departments.find((d) => d.name.trim().toLowerCase() === DUE_SAME_DAY_OVERLOAD_DEPARTMENT.toLowerCase());
+
+  return members
+    .map((m) => {
+      const metrics = personMetrics(m, tasks);
+      const isDesign = !!designDept && departmentIdsOf(m, memberDepartments).includes(designDept.id);
+
+      if (isDesign) {
+        const busiestDay = maxOpenTasksPerDay(tasks.filter((t) => t.assignee_id === m.id));
+        return {
+          member: m,
+          triggered: busiestDay > DUE_SAME_DAY_OVERLOAD_THRESHOLD,
+          tone: "danger" as const,
+          label: "Sobrecarregado",
+          detail: `${busiestDay} tarefas vencendo no mesmo dia (limite: ${DUE_SAME_DAY_OVERLOAD_THRESHOLD})`,
+          barValue: Math.min(100, (busiestDay / (DUE_SAME_DAY_OVERLOAD_THRESHOLD * 2)) * 100),
+        };
+      }
+
+      return {
+        member: m,
+        triggered: metrics.load >= 0.85,
+        tone: metrics.load >= 1.15 ? ("danger" as const) : ("warning" as const),
+        label: metrics.loadLabel,
+        detail: `${metrics.open} tarefas abertas · ${metrics.openPoints} pts / ${m.capacity_points} pts`,
+        barValue: metrics.load * 100,
+      };
+    })
+    .filter((m) => m.triggered)
+    .sort((a, b) => b.barValue - a.barValue)
+    .slice(0, 4);
 }
 
 function buildEvolution(done: { completed_at: string | null; complexity: number }[]) {

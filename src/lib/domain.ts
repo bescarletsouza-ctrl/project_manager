@@ -115,7 +115,6 @@ export type Task = {
   completed: boolean;
 };
 
-
 export type Member = {
   id: string;
   name: string;
@@ -129,7 +128,6 @@ export type Member = {
   avatar_url: string | null;
   phone: string | null;
 };
-
 
 export type Project = {
   id: string;
@@ -150,8 +148,6 @@ export type Project = {
   default_due_days: number | null;
   visible_columns: string[];
 };
-
-
 
 export type Department = { id: string; name: string; color: string };
 /** Departamentos extras de uma pessoa, além do "Departamento" principal em Member.department_id. */
@@ -262,6 +258,16 @@ export function deadlineStatus(t: Task): DeadlineStatus {
   return "no_prazo";
 }
 
+/** Tarefa aberta com prazo dentro dos próximos `days` dias, sem estar atrasada. */
+export function isDueSoon(t: Task, days = 3) {
+  if (!isOpen(t) || !t.due_date || isLate(t)) return false;
+  const limit = new Date();
+  limit.setDate(limit.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const limitIso = `${limit.getFullYear()}-${pad(limit.getMonth() + 1)}-${pad(limit.getDate())}`;
+  return t.due_date >= todayLocalIso() && t.due_date <= limitIso;
+}
+
 /** Lead time: criação → conclusão (horas) */
 export const leadTime = (t: Task) => hoursBetween(t.created_at, t.completed_at);
 /** Cycle time: início da execução → conclusão (horas) */
@@ -347,6 +353,16 @@ export function personMetrics(member: Member, tasks: Task[]) {
     loadLabel,
     index,
   };
+}
+
+/** Maior quantidade de tarefas abertas de uma pessoa vencendo no mesmo dia (due_date). */
+export function maxOpenTasksPerDay(tasks: Task[]) {
+  const counts: Record<string, number> = {};
+  for (const t of tasks) {
+    if (!isOpen(t) || !t.due_date) continue;
+    counts[t.due_date] = (counts[t.due_date] ?? 0) + 1;
+  }
+  return Object.values(counts).reduce((max, c) => Math.max(max, c), 0);
 }
 
 export function projectHealth(project: Project, tasks: Task[]) {

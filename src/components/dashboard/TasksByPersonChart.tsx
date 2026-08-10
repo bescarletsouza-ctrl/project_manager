@@ -1,10 +1,42 @@
 import { useMemo, useState } from "react";
-import { Bar as RBar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Bar as RBar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { SectionTitle } from "@/components/ui-bits";
 import { DrilldownPanel, type Selection } from "./DrilldownPanel";
-import type { Member, Project, Task } from "@/lib/domain";
+import { isDueSoon, isLate, isOpen, type Member, type Project, type Task } from "@/lib/domain";
 
-const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+const COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+];
+
+type StatusFilter = "todos" | "vencendo" | "a_vencer" | "atrasado";
+
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: "todos", label: "Todos" },
+  { key: "vencendo", label: "Vencendo" },
+  { key: "a_vencer", label: "A vencer" },
+  { key: "atrasado", label: "Atrasado" },
+];
+
+function matchesStatusFilter(t: Task, filter: StatusFilter) {
+  if (filter === "todos") return true;
+  if (!isOpen(t)) return false;
+  if (filter === "atrasado") return isLate(t);
+  if (filter === "vencendo") return isDueSoon(t);
+  return !isLate(t) && !isDueSoon(t);
+}
 
 function dateKey(task: Task) {
   return task.due_date ?? task.created_at.slice(0, 10);
@@ -23,16 +55,18 @@ export function TasksByPersonChart({
   const [selection, setSelection] = useState<Selection>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
 
   const filtered = useMemo(
     () =>
       tasks.filter((t) => {
+        if (!matchesStatusFilter(t, statusFilter)) return false;
         const d = dateKey(t);
         if (from && d < from) return false;
         if (to && d > to) return false;
         return true;
       }),
-    [tasks, from, to],
+    [tasks, from, to, statusFilter],
   );
 
   const byPerson = useMemo(() => {
@@ -58,21 +92,47 @@ export function TasksByPersonChart({
     <div className="space-y-4">
       <div className="card-surface p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionTitle title="Tarefas por pessoa" description="Clique em uma barra para ver as tarefas" />
+          <SectionTitle
+            title="Tarefas por pessoa"
+            description="Clique em uma barra para ver as tarefas"
+          />
           <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              className={inputCls}
+              aria-label="Status do prazo"
+            >
+              {STATUS_FILTERS.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
               De
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className={inputCls}
+              />
             </label>
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
               Até
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className={inputCls}
+              />
             </label>
-            {(from || to) && (
+            {(from || to || statusFilter !== "todos") && (
               <button
                 onClick={() => {
                   setFrom("");
                   setTo("");
+                  setStatusFilter("todos");
                   setSelection(null);
                 }}
                 className="rounded-md border border-input px-2.5 py-1 text-xs hover:bg-secondary"
@@ -86,9 +146,23 @@ export function TasksByPersonChart({
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={byPerson}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" fontSize={11} stroke="var(--muted-foreground)" interval={0} height={50} angle={-20} textAnchor="end" />
+              <XAxis
+                dataKey="name"
+                fontSize={11}
+                stroke="var(--muted-foreground)"
+                interval={0}
+                height={50}
+                angle={-20}
+                textAnchor="end"
+              />
               <YAxis fontSize={11} allowDecimals={false} stroke="var(--muted-foreground)" />
-              <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--popover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                }}
+              />
               <RBar
                 dataKey="total"
                 name="Tarefas"
@@ -111,8 +185,12 @@ export function TasksByPersonChart({
         )}
       </div>
 
-
-      <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
+      <DrilldownPanel
+        selection={selection}
+        onClose={() => setSelection(null)}
+        members={members}
+        projects={projects}
+      />
     </div>
   );
 }
