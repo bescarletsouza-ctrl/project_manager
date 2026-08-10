@@ -976,7 +976,6 @@ function AttachmentsBlock({
           <input
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
             className="hidden"
             disabled={upload.isPending}
             onChange={(e) => {
@@ -987,7 +986,7 @@ function AttachmentsBlock({
         </label>
       </div>
       {attachments.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nenhum arquivo ainda. Imagens ou PDFs até 10 MB.</p>
+        <p className="text-xs text-muted-foreground">Nenhum arquivo ainda. Qualquer tipo de arquivo até 10 MB.</p>
       ) : (
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {attachments.map((a) => {
