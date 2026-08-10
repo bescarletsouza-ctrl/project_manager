@@ -38,7 +38,14 @@ import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/aut
 import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { AssigneePicker, DeadlinePill, InlineSelect, InlineText, TagPicker } from "@/components/project/ProjectViews";
+import {
+  AssigneePicker,
+  DeadlinePill,
+  InlineSelect,
+  InlineText,
+  TagPicker,
+  useManualOrderPreference,
+} from "@/components/project/ProjectViews";
 
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
   head: () => ({
@@ -233,6 +240,37 @@ function DepartmentDetail() {
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível mover a tarefa."),
   });
+
+  /**
+   * Ordem manual do Quadro do departamento — mesma preferência (e mesma
+   * mecânica) do Quadro do projeto: por padrão as colunas ordenam por data
+   * de criação (mais nova em cima); soltar uma tarefa sobre outra liga a
+   * ordem manual, que passa a gravar/respeitar position de verdade.
+   */
+  const [manualOrder, setManualOrder] = useManualOrderPreference(`dept:${departmentId}`);
+  const reorderDeptTasks = useMutation({
+    mutationFn: async (input: { ids: string[]; sectionId: string | null; movedId: string }) => {
+      const task = tasks.find((t) => t.id === input.movedId);
+      if (task && task.section_id !== input.sectionId) {
+        const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
+        if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      }
+      await Promise.all(input.ids.map((id, i) => updateTask(id, { position: i })));
+    },
+    onSuccess: () => invalidateTaskAuto(),
+    onError: () => toast.error("Não foi possível reordenar as tarefas."),
+  });
+  /** Solta a tarefa arrastada sobre `targetTaskId`, inserindo antes dela. */
+  function dropTaskOn(targetTaskId: string, sectionId: string | null, listIds: string[]) {
+    if (!dragTaskId || dragTaskId === targetTaskId) return;
+    const ids = listIds.filter((id) => id !== dragTaskId);
+    const at = ids.indexOf(targetTaskId);
+    ids.splice(at < 0 ? ids.length : at, 0, dragTaskId);
+    if (!manualOrder) setManualOrder(true);
+    reorderDeptTasks.mutate({ ids, sectionId, movedId: dragTaskId });
+    setDragTaskId(null);
+    setOverSectionId(null);
+  }
 
   /**
    * Reordena seções do departamento. Recebe a lista de ids na ordem final
@@ -553,7 +591,26 @@ function DepartmentDetail() {
           description="Adicione a primeira para começar a organizar as tarefas."
         />
       ) : (
-        <div className="flex items-start gap-3 overflow-x-auto pb-4">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {manualOrder ? (
+              <>
+                <span>Ordenação manual (definida pelo arraste).</span>
+                <button
+                  type="button"
+                  onClick={() => setManualOrder(false)}
+                  className="btn btn-ghost px-2 py-0.5 text-xs"
+                >
+                  Voltar para ordem de criação
+                </button>
+              </>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Check className="size-3.5 text-brand" /> Ordenado por mais recente — arraste uma tarefa pra ordenar manualmente
+              </span>
+            )}
+          </div>
+          <div className="flex items-start gap-3 overflow-x-auto pb-4">
           {boardSections.map((section) => {
             const isVirtual = !section.id;
             // Órfãs entram na 1ª seção real. Quando não há seções, a coluna
@@ -569,9 +626,14 @@ function DepartmentDetail() {
                     ]
                   : deptTasks.filter((t) => t.section_id === section.id)
             )
-              // Mesma regra do Quadro do projeto: mais nova em cima.
               .slice()
-              .sort((a, b) => b.created_at.localeCompare(a.created_at));
+              .sort(
+                manualOrder
+                  ? (a, b) => (a.position ?? 0) - (b.position ?? 0)
+                  // Padrão: mais nova em cima, igual ao Quadro do projeto.
+                  : (a, b) => b.created_at.localeCompare(a.created_at),
+              );
+            const listIds = list.map((t) => t.id);
 
             return (
               <div
@@ -647,6 +709,7 @@ function DepartmentDetail() {
                         setOverSectionId(null);
                       }}
                       onOpen={() => setOpenTask(t)}
+                      onDropOnTask={() => dropTaskOn(t.id, section.id || null, listIds)}
                       automations={automations}
                       departmentId={departmentId}
                       columnPrefs={columnPrefs}
@@ -664,6 +727,7 @@ function DepartmentDetail() {
 
           <div className="w-56 shrink-0 pt-1">
             <AddSection onAdd={(name) => addSection.mutate(name)} />
+          </div>
           </div>
         </div>
       )}
@@ -808,6 +872,7 @@ function TaskCard({
   onDragStart,
   onDragEnd,
   onOpen,
+  onDropOnTask,
   automations,
   departmentId,
   columnPrefs,
@@ -821,6 +886,8 @@ function TaskCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onOpen: () => void;
+  /** Solta a tarefa arrastada sobre este card — reordena dentro da etapa. */
+  onDropOnTask: () => void;
   columnPrefs: ColumnPrefs;
   /**
    * Automações do container atual — o toggle "concluir" precisa rodá-las,
@@ -897,6 +964,15 @@ function TaskCard({
           onDragStart();
         }}
         onDragEnd={onDragEnd}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDropOnTask();
+        }}
         onClick={() => !editingTitle && onOpen()}
         onKeyDown={(e) => {
           if (editingTitle) return;

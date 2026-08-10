@@ -591,8 +591,8 @@ type ColumnWidths = ReturnType<typeof useColumnWidths>;
  * arraste, salva em tasks.position) ou reordena tudo por data de criação.
  * O default é false — a ordem por criação é a que o produto pediu como padrão.
  */
-function useManualOrderPreference(projectId: string): [boolean, (v: boolean) => void] {
-  const storageKey = `fluxo:manual-order:${projectId}`;
+export function useManualOrderPreference(id: string): [boolean, (v: boolean) => void] {
+  const storageKey = `fluxo:manual-order:${id}`;
   const [manual, setManual] = useState(false);
 
   useEffect(() => {
@@ -2266,14 +2266,18 @@ export function BoardView({
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations, tasks, allSections);
+  // Mesma preferência da Lista (mesma chave de localStorage): por padrão as
+  // colunas ordenam por data de criação (mais nova em cima); arrastar uma
+  // tarefa dentro da coluna liga a ordem manual, que passa a respeitar
+  // position de verdade.
+  const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
-    // No Quadro a ordem dentro da coluna é fixa por data de criação (mais
-    // nova em cima). Arrastar entre colunas ainda move a tarefa; arrastar
-    // dentro da mesma coluna atualiza position mas o sort ignora — de
-    // propósito, para que uma tarefa recém-criada nunca fique embaixo.
-    reorderTasks: (input) => reorderTasks.mutate(input),
+    reorderTasks: (input) => {
+      if (!manualOrder) setManualOrder(true);
+      reorderTasks.mutate(input);
+    },
   });
   const memberOf = (id?: string | null) => members.find((m) => m.id === id) ?? null;
   const departmentOf = (id?: string | null) => departments.find((d) => d.id === id) ?? null;
@@ -2312,17 +2316,37 @@ export function BoardView({
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {manualOrder ? (
+          <>
+            <span>Ordenação manual (definida pelo arraste).</span>
+            <button
+              type="button"
+              onClick={() => setManualOrder(false)}
+              className="btn btn-ghost px-2 py-0.5 text-xs"
+            >
+              Voltar para ordem de criação
+            </button>
+          </>
+        ) : (
+          <span className="flex items-center gap-1">
+            <Check className="size-3.5 text-brand" /> Ordenado por mais recente — arraste uma tarefa pra ordenar manualmente
+          </span>
+        )}
+      </div>
       <div className="flex items-start gap-3 overflow-x-auto pb-4">
       {boardSections.map((section) => {
         const list = tasks
           .filter((t) => sectionOf(t) === section.id && !t.parent_task_id)
           .slice()
-          // Ordem fixa: mais recente em cima. O produto pediu que "toda
-          // tarefa nova entre no topo" — a forma mais robusta de garantir
-          // isso é ignorar position dentro da coluna. Sem esse fallback
-          // duas criações rápidas empatavam em position e o desempate por
-          // created_at ASC jogava a mais nova para baixo.
-          .sort((a, b) => b.created_at.localeCompare(a.created_at));
+          .sort(
+            manualOrder
+              ? (a, b) => (a.position ?? 0) - (b.position ?? 0)
+              // Padrão: mais recente em cima, ignorando position — assim uma
+              // tarefa recém-criada sempre entra no topo, sem depender de
+              // arraste nenhum.
+              : (a, b) => b.created_at.localeCompare(a.created_at),
+          );
         const listIds = list.map((t) => t.id);
         return (
           <div
