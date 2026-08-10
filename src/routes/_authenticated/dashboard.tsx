@@ -17,6 +17,7 @@ import {
   YAxis,
 } from "recharts";
 import { TasksByPersonChart } from "@/components/dashboard/TasksByPersonChart";
+import { DeadlineStatusChart } from "@/components/dashboard/DeadlineStatusChart";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
 import { PeriodComparePanel } from "@/components/dashboard/PeriodComparePanel";
 import { SectionsChart } from "@/components/dashboard/SectionsChart";
@@ -264,6 +265,8 @@ function Dashboard() {
           </div>
         </div>
       </div>
+
+      <DeadlineStatusChart tasks={filtered} onSelect={openSelection} />
 
       <TasksByPersonChart tasks={filtered} members={members} projects={projects} />
 
