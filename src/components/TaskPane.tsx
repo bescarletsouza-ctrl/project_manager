@@ -19,6 +19,7 @@ import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
 import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { fetchLinkPreview } from "@/lib/linkPreview";
 import {
   createTask,
   departmentsQuery,
@@ -640,6 +641,7 @@ export function TaskPane({
                 placeholder="Do que se trata esta tarefa?"
                 className="mt-1"
                 onImagePaste={(file) => uploadDescriptionImage(task.id, file)}
+                onLinkPreview={(url) => fetchLinkPreview(url)}
               />
             </div>
 

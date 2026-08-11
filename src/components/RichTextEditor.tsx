@@ -10,6 +10,9 @@ const ALLOWED_TAGS = new Set([
   "H1", "H2", "H3", "BLOCKQUOTE", "CODE", "PRE", "A", "IMG",
 ]);
 
+/** Únicas classes que sobrevivem à sanitização — só as do card de preview de link (ver buildLinkCard). */
+const ALLOWED_CLASSES = new Set(["link-preview-card", "lp-thumb", "lp-body", "lp-title", "lp-desc", "lp-site"]);
+
 function sanitizeNode(node: Node, out: Node[], doc: Document) {
   if (node.nodeType === Node.TEXT_NODE) {
     out.push(doc.createTextNode(node.textContent ?? ""));
@@ -31,6 +34,8 @@ function sanitizeNode(node: Node, out: Node[], doc: Document) {
     return;
   }
   const clean = doc.createElement(el.tagName.toLowerCase());
+  const cls = el.getAttribute("class");
+  if (cls && ALLOWED_CLASSES.has(cls)) clean.setAttribute("class", cls);
   if (el.tagName === "A") {
     const href = el.getAttribute("href");
     if (href && /^https?:\/\//i.test(href)) {
@@ -68,7 +73,14 @@ function plainTextOf(html: string) {
 
 /** Classes compartilhadas pra listas/links renderizarem certo (sem plugin de typography). */
 const RICH_CONTENT_CLASSES =
-  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-brand [&_a]:underline [&_strong]:font-semibold [&_b]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px] [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md";
+  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-brand [&_a]:underline [&_strong]:font-semibold [&_b]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px] [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md " +
+  // Card de preview de link — a.link-preview-card não deve herdar o sublinhado/cor de link comum.
+  "[&_.link-preview-card]:my-1 [&_.link-preview-card]:flex [&_.link-preview-card]:items-center [&_.link-preview-card]:gap-3 [&_.link-preview-card]:rounded-lg [&_.link-preview-card]:border [&_.link-preview-card]:border-border [&_.link-preview-card]:p-2 [&_.link-preview-card]:no-underline [&_.link-preview-card]:text-foreground [&_.link-preview-card]:hover:bg-secondary/50 " +
+  "[&_.lp-thumb]:size-16 [&_.lp-thumb]:shrink-0 [&_.lp-thumb]:rounded-md [&_.lp-thumb]:object-cover [&_.lp-thumb]:my-0 " +
+  "[&_.lp-body]:min-w-0 [&_.lp-body]:flex-1 " +
+  "[&_.lp-title]:truncate [&_.lp-title]:text-sm [&_.lp-title]:font-medium " +
+  "[&_.lp-desc]:line-clamp-2 [&_.lp-desc]:text-xs [&_.lp-desc]:text-muted-foreground " +
+  "[&_.lp-site]:text-[11px] [&_.lp-site]:text-muted-foreground [&_.lp-site]:uppercase";
 
 function ToolbarButton({
   icon: Icon,
@@ -112,6 +124,7 @@ export function RichTextEditor({
   className,
   collapsedHeight = 140,
   onImagePaste,
+  onLinkPreview,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -122,12 +135,15 @@ export function RichTextEditor({
   collapsedHeight?: number;
   /** Sobe a imagem colada e devolve a URL pública pra inserir inline — sem isso, colar imagem não faz nada. */
   onImagePaste?: (file: File) => Promise<string>;
+  /** Busca título/descrição/imagem de um link colado sozinho — sem isso, o link só entra como texto/URL normal. */
+  onLinkPreview?: (url: string) => Promise<{ title: string; description: string; image: string | null; siteName: string } | null>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pendingPaste, setPendingPaste] = useState<{ html: string; text: string } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [fetchingLink, setFetchingLink] = useState(false);
 
   const checkOverflow = () => {
     requestAnimationFrame(() => {
@@ -150,24 +166,75 @@ export function RichTextEditor({
     emitChange();
   };
 
-  /** Insere a imagem já enviada na posição do cursor, sem passar string por innerHTML (evita qualquer risco de injeção). */
-  const insertImage = (url: string, range: Range | null) => {
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "imagem colada";
+  /** Insere um nó na posição do cursor, sem passar string por innerHTML (evita qualquer risco de injeção). */
+  const insertNodeAtRange = (node: HTMLElement, range: Range | null) => {
     if (range) {
       range.deleteContents();
-      range.insertNode(img);
-      range.setStartAfter(img);
-      range.setEndAfter(img);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.setEndAfter(node);
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
     } else {
-      ref.current?.appendChild(img);
+      ref.current?.appendChild(node);
     }
     emitChange();
     checkOverflow();
+  };
+
+  const insertImage = (url: string, range: Range | null) => {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "imagem colada";
+    insertNodeAtRange(img, range);
+  };
+
+  /** Card clicável com imagem/título/descrição — mesma estrutura que ALLOWED_CLASSES libera na sanitização. */
+  const insertLinkCard = (
+    url: string,
+    data: { title: string; description: string; image: string | null; siteName: string },
+    range: Range | null,
+  ) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.className = "link-preview-card";
+    if (data.image) {
+      const img = document.createElement("img");
+      img.src = data.image;
+      img.alt = "";
+      img.className = "lp-thumb";
+      a.appendChild(img);
+    }
+    const body = document.createElement("div");
+    body.className = "lp-body";
+    const title = document.createElement("div");
+    title.className = "lp-title";
+    title.textContent = data.title;
+    body.appendChild(title);
+    if (data.description) {
+      const desc = document.createElement("div");
+      desc.className = "lp-desc";
+      desc.textContent = data.description;
+      body.appendChild(desc);
+    }
+    const site = document.createElement("div");
+    site.className = "lp-site";
+    site.textContent = data.siteName;
+    body.appendChild(site);
+    a.appendChild(body);
+    insertNodeAtRange(a, range);
+  };
+
+  const insertPlainLink = (url: string, range: Range | null) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = url;
+    insertNodeAtRange(a, range);
   };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -192,9 +259,31 @@ export function RichTextEditor({
       return;
     }
 
-    e.preventDefault();
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
+    const bareUrl = text.trim();
+
+    // Link colado sozinho (nada mais no clipboard): busca a preview em vez de colar como texto puro.
+    if (onLinkPreview && !html.trim() && /^https?:\/\/\S+$/i.test(bareUrl)) {
+      e.preventDefault();
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+      setFetchingLink(true);
+      try {
+        const data = await onLinkPreview(bareUrl);
+        ref.current?.focus();
+        if (data) insertLinkCard(bareUrl, data, range);
+        else insertPlainLink(bareUrl, range);
+      } catch {
+        ref.current?.focus();
+        insertPlainLink(bareUrl, range);
+      } finally {
+        setFetchingLink(false);
+      }
+      return;
+    }
+
+    e.preventDefault();
     if (html.trim() && plainTextOf(sanitizeHtml(html)) !== text.trim()) {
       setPendingPaste({ html, text });
       return;
@@ -229,6 +318,7 @@ export function RichTextEditor({
         <span className="mx-1 h-4 w-px bg-border" />
         <ToolbarButton icon={Eraser} label="Limpar formatação" onClick={() => exec("removeFormat")} />
         {uploadingImage && <span className="ml-1 text-xs text-muted-foreground">Enviando imagem…</span>}
+        {fetchingLink && <span className="ml-1 text-xs text-muted-foreground">Buscando preview do link…</span>}
       </div>
 
       {pendingPaste && (
