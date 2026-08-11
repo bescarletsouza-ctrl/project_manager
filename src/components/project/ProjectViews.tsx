@@ -535,8 +535,14 @@ const defaultWidth = (id: string) =>
  * visualização de quem está olhando, não dado do projeto — e evita migração
  * de schema só para guardar pixel.
  */
-function useColumnWidths(projectId: string) {
-  const storageKey = `fluxo:col-widths:${projectId}`;
+/**
+ * Larguras de coluna reaproveitável por qualquer grade (Lista do projeto,
+ * Lista do departamento…). `scopeKey` isola o localStorage por
+ * projeto/departamento; `getDefaultWidth` resolve o ponto de partida de cada
+ * coluna antes do usuário arrastar a borda pela 1ª vez.
+ */
+export function useColumnWidths(scopeKey: string, getDefaultWidth: (id: string) => number) {
+  const storageKey = `fluxo:col-widths:${scopeKey}`;
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
 
@@ -565,7 +571,7 @@ function useColumnWidths(projectId: string) {
     return () => clearTimeout(timer);
   }, [widths, loaded, storageKey]);
 
-  const widthOf = (id: string) => widths[id] ?? defaultWidth(id);
+  const widthOf = (id: string) => widths[id] ?? getDefaultWidth(id);
 
   const setWidth = (id: string, value: number) =>
     setWidths((prev) => ({
@@ -584,7 +590,7 @@ function useColumnWidths(projectId: string) {
   return { widthOf, setWidth, resetWidth };
 }
 
-type ColumnWidths = ReturnType<typeof useColumnWidths>;
+export type ColumnWidths = ReturnType<typeof useColumnWidths>;
 
 /**
  * Preferência por projeto: se a lista respeita a ordem manual (definida pelo
@@ -617,7 +623,7 @@ export function useManualOrderPreference(id: string): [boolean, (v: boolean) => 
 }
 
 /** Alça de 6px na borda direita da coluna. */
-function ResizeHandle({
+export function ResizeHandle({
   onResize,
   onReset,
   label,
@@ -1812,7 +1818,7 @@ export function ListView({
   });
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<SortState>(null);
-  const cols = useColumnWidths(projectId);
+  const cols = useColumnWidths(projectId, defaultWidth);
   const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
   const dnd = useDnd({
     sections,

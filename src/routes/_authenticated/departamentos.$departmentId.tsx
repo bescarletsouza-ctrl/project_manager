@@ -43,8 +43,11 @@ import {
   DeadlinePill,
   InlineSelect,
   InlineText,
+  ResizeHandle,
   TagPicker,
+  useColumnWidths,
   useManualOrderPreference,
+  type ColumnWidths,
 } from "@/components/project/ProjectViews";
 
 export const Route = createFileRoute("/_authenticated/departamentos/$departmentId")({
@@ -73,13 +76,32 @@ const COLUMN_KEYS = ["projeto", "prazo", "prioridade", "status", "sprint", "etiq
 type ColumnKey = (typeof COLUMN_KEYS)[number];
 const COLUMN_LABEL: Record<ColumnKey, string> = {
   projeto: "Projeto",
-  prazo: "Prazo",
+  prazo: "Data",
   prioridade: "Prioridade",
   status: "Status",
   sprint: "Sprint",
   etiquetas: "Etiquetas",
   responsavel: "Responsável",
 };
+
+/**
+ * Larguras de coluna da Lista do departamento — mesmo mecanismo de resize do
+ * projeto (useColumnWidths/ResizeHandle), só que com defaults próprios porque
+ * as colunas não são as mesmas (aqui não tem "seção" nem "início", por
+ * exemplo). "deadline" é o selo de prazo (No prazo/Vencendo/Atrasado) que
+ * sempre aparece, mesmo com a coluna "prazo" (data editável) desligada.
+ */
+const LIST_COLUMN_DEFAULT_WIDTH: Record<string, number> = {
+  projeto: 140,
+  prioridade: 96,
+  status: 110,
+  sprint: 96,
+  etiquetas: 130,
+  deadline: 112,
+  prazo: 116,
+  responsavel: 60,
+};
+const listColumnDefaultWidth = (id: string) => LIST_COLUMN_DEFAULT_WIDTH[id] ?? 100;
 type ColumnPrefs = Record<ColumnKey, boolean>;
 
 function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey, on: boolean) => void] {
@@ -164,6 +186,7 @@ function DepartmentDetail() {
   const toggleSectionSort = (sectionId: string) =>
     setSectionSortDir((s) => ({ ...s, [sectionId]: sortDirOf(sectionId) === "desc" ? "asc" : "desc" }));
   const [columnPrefs, setColumnPref] = useDeptColumnPrefs(departmentId);
+  const listCols = useColumnWidths(`dept-list:${departmentId}`, listColumnDefaultWidth);
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   /** Seção em arraste — quando o header de uma coluna/bloco é agarrado. */
@@ -586,6 +609,7 @@ function DepartmentDetail() {
           members={members}
           projects={projects}
           columnPrefs={columnPrefs}
+          cols={listCols}
           renamingSectionId={renaming}
           onRenameStart={(id) => setRenaming(id)}
           onRenameCommit={(id, name) => {
@@ -1298,19 +1322,35 @@ function AddSection({ onAdd }: { onAdd: (name: string) => void }) {
 
 const LIST_HEADER_LABEL_CLS = "truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
 
-/** Cabeçalho identificando as colunas da Lista — mesmas colunas configuráveis do Quadro (COLUMN_KEYS). */
-function ListColumnHeader({ columnPrefs }: { columnPrefs: ColumnPrefs }) {
+/**
+ * Cabeçalho identificando as colunas da Lista, com a mesma largura (e alça de
+ * redimensionar) que as células abaixo — sem isso as colunas desalinham
+ * porque cada campo (pill de projeto, badge de status…) tem largura própria.
+ */
+function ListColumnHeader({ columnPrefs, cols }: { columnPrefs: ColumnPrefs; cols: ColumnWidths }) {
+  const column = (id: string, label: string) => {
+    const width = cols.widthOf(id);
+    return (
+      <div key={id} style={{ width }} className="relative shrink-0 self-stretch">
+        <span className={LIST_HEADER_LABEL_CLS}>{label}</span>
+        <ResizeHandle label={label} onReset={() => cols.resetWidth(id)} onResize={(deltaX) => cols.setWidth(id, width + deltaX)} />
+      </div>
+    );
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/40 px-2 py-2">
+    <div className="flex items-center gap-2 bg-muted/40 px-2 py-2">
       <span className="w-4 shrink-0" />
       <span className={cn(LIST_HEADER_LABEL_CLS, "min-w-0 flex-1")}>Tarefa</span>
-      {columnPrefs.projeto && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.projeto}</span>}
-      {columnPrefs.prioridade && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.prioridade}</span>}
-      {columnPrefs.status && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.status}</span>}
-      {columnPrefs.sprint && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.sprint}</span>}
-      {columnPrefs.etiquetas && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.etiquetas}</span>}
-      <span className={cn(LIST_HEADER_LABEL_CLS, "w-[116px] shrink-0 text-right")}>{COLUMN_LABEL.prazo}</span>
-      {columnPrefs.responsavel && <span className={cn(LIST_HEADER_LABEL_CLS, "w-8 shrink-0")}>{COLUMN_LABEL.responsavel}</span>}
+      {columnPrefs.projeto && column("projeto", COLUMN_LABEL.projeto)}
+      {columnPrefs.prioridade && column("prioridade", COLUMN_LABEL.prioridade)}
+      {columnPrefs.status && column("status", COLUMN_LABEL.status)}
+      {columnPrefs.sprint && column("sprint", COLUMN_LABEL.sprint)}
+      {columnPrefs.etiquetas && column("etiquetas", COLUMN_LABEL.etiquetas)}
+      {/* Selo de prazo (No prazo/Vencendo/Atrasado) — sempre aparece na linha, com ou sem a coluna "prazo" ligada. */}
+      {column("deadline", "Prazo")}
+      {columnPrefs.prazo && column("prazo", COLUMN_LABEL.prazo)}
+      {columnPrefs.responsavel && column("responsavel", COLUMN_LABEL.responsavel)}
     </div>
   );
 }
@@ -1327,6 +1367,7 @@ function ListPanel({
   members,
   projects,
   columnPrefs,
+  cols,
   renamingSectionId,
   onRenameStart,
   onRenameCommit,
@@ -1362,6 +1403,7 @@ function ListPanel({
   /** Só o suficiente para exibir o pill do projeto de cada tarefa. */
   projects: { id: string; name: string; color: string }[];
   columnPrefs: ColumnPrefs;
+  cols: ColumnWidths;
   renamingSectionId: string | null;
   onRenameStart: (id: string) => void;
   onRenameCommit: (id: string, name: string) => void;
@@ -1393,7 +1435,7 @@ function ListPanel({
 
   return (
     <div className="card-surface divide-y divide-border">
-      <ListColumnHeader columnPrefs={columnPrefs} />
+      <ListColumnHeader columnPrefs={columnPrefs} cols={cols} />
       {boardSections.map((section) => {
         const isVirtual = !section.id;
         // Mesma regra da Board view: órfãs acompanham a 1ª seção real. O id
@@ -1486,6 +1528,7 @@ function ListPanel({
                     onDragEnd={onTaskDragEnd}
                     onOpen={() => onOpenTask(t)}
                     columnPrefs={columnPrefs}
+                    cols={cols}
                     currentMemberId={currentMemberId}
                   />
                 ))}
@@ -1565,6 +1608,7 @@ function TaskRow({
   onDragEnd,
   onOpen,
   columnPrefs,
+  cols,
   currentMemberId,
 }: {
   task: Task;
@@ -1577,8 +1621,15 @@ function TaskRow({
   onDragEnd: () => void;
   onOpen: () => void;
   columnPrefs: ColumnPrefs;
+  cols: ColumnWidths;
   currentMemberId: string | null;
 }) {
+  /** Mesma largura do cabeçalho (ListColumnHeader) — senão as colunas desalinham. */
+  const cell = (id: string, children: React.ReactNode) => (
+    <span style={{ width: cols.widthOf(id) }} className="shrink-0">
+      {children}
+    </span>
+  );
   const [editingTitle, setEditingTitle] = useState(false);
   const done = task.status === "concluido";
   const invalidateTask = useInvalidate(["tasks"]);
@@ -1712,57 +1763,62 @@ function TaskRow({
               {task.title}
             </span>
           )}
-          {columnPrefs.projeto && project && (
-            <Pill tone="brand">
-              <span className={cn("size-1.5 rounded-full", dotClass(project.color))} />
-              {project.name}
-            </Pill>
-          )}
-          {columnPrefs.prioridade && (
-            <span className="w-24 shrink-0">
+          {columnPrefs.projeto &&
+            cell(
+              "projeto",
+              project && (
+                <Pill tone="brand">
+                  <span className={cn("size-1.5 rounded-full", dotClass(project.color))} />
+                  {project.name}
+                </Pill>
+              ),
+            )}
+          {columnPrefs.prioridade &&
+            cell(
+              "prioridade",
               <InlineSelect
                 label="Prioridade"
                 value={task.priority}
                 onChange={(v) => fieldPatch.mutate({ priority: v as Priority })}
                 options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
                 className="text-xs"
-              />
-            </span>
-          )}
-          {columnPrefs.status && <StatusBadge status={task.status} />}
-          {columnPrefs.sprint && (
-            <span className="w-24 shrink-0">
+              />,
+            )}
+          {columnPrefs.status && cell("status", <StatusBadge status={task.status} />)}
+          {columnPrefs.sprint &&
+            cell(
+              "sprint",
               <InlineText
                 label="Sprint"
                 value={task.sprint ?? ""}
                 placeholder="sprint"
                 onCommit={(v) => fieldPatch.mutate({ sprint: v || null })}
                 className="text-xs"
-              />
-            </span>
-          )}
-          {columnPrefs.etiquetas && (
-            <TagPicker value={task.tags ?? []} onChange={(tags) => fieldPatch.mutate({ tags })} />
-          )}
-          <DeadlinePill task={task} />
-          {columnPrefs.prazo && (
-            <span className="w-[116px] shrink-0">
+              />,
+            )}
+          {columnPrefs.etiquetas &&
+            cell("etiquetas", <TagPicker value={task.tags ?? []} onChange={(tags) => fieldPatch.mutate({ tags })} />)}
+          {cell("deadline", <DeadlinePill task={task} />)}
+          {columnPrefs.prazo &&
+            cell(
+              "prazo",
               <InlineText
                 label="Prazo"
                 type="date"
                 value={task.due_date ?? ""}
                 onCommit={(v) => fieldPatch.mutate({ due_date: v || null })}
                 className={cn("text-right text-xs", isLate(task) && "text-destructive")}
-              />
-            </span>
-          )}
-          {columnPrefs.responsavel && (
-            <AssigneePicker
-              members={members}
-              value={task.assignee_id}
-              onChange={(id) => fieldPatch.mutate({ assignee_id: id })}
-            />
-          )}
+              />,
+            )}
+          {columnPrefs.responsavel &&
+            cell(
+              "responsavel",
+              <AssigneePicker
+                members={members}
+                value={task.assignee_id}
+                onChange={(id) => fieldPatch.mutate({ assignee_id: id })}
+              />,
+            )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
