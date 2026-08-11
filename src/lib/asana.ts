@@ -530,6 +530,26 @@ export async function deleteTaskAttachment(attachment: Pick<TaskAttachment, "id"
   }
 }
 
+/* ---------------- imagem colada na descrição ---------------- */
+
+/**
+ * Bucket público (ver migration 20260810130000_imagens_de_descricao.sql) —
+ * URL direta e estável, ao contrário do bucket de anexos (signed URL de só
+ * 5 min, que não serve pra imagem embutida no meio do texto).
+ */
+const DESCRIPTION_IMAGE_BUCKET = "task-description-images";
+
+/** Sobe a imagem colada em <taskId>/<uuid>-<arquivo> e devolve a URL pública, pra inserir direto no <img src>. */
+export async function uploadDescriptionImage(taskId: string, file: File): Promise<string> {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "imagem.png";
+  const path = `${taskId}/${crypto.randomUUID()}-${safeName}`;
+  const uploadOptions: { contentType?: string; upsert: boolean } = { upsert: false };
+  if (file.type) uploadOptions.contentType = file.type;
+  const { error } = await supabase.storage.from(DESCRIPTION_IMAGE_BUCKET).upload(path, file, uploadOptions);
+  if (error) throw error;
+  return supabase.storage.from(DESCRIPTION_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
 /* ---------------- perfil e foto ---------------- */
 
 /** Bucket público (ver migration 20260808120000_perfil_e_foto.sql) — URL direta, sem signed URL. */

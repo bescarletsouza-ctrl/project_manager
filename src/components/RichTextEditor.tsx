@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Bold, ChevronDown, ChevronUp, Eraser, Italic, List, ListOrdered, Strikethrough, Underline } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -6,7 +7,7 @@ import { cn } from "@/lib/utils";
 const ALLOWED_TAGS = new Set([
   "B", "STRONG", "I", "EM", "U", "S", "STRIKE",
   "UL", "OL", "LI", "BR", "P", "DIV", "SPAN",
-  "H1", "H2", "H3", "BLOCKQUOTE", "CODE", "PRE", "A",
+  "H1", "H2", "H3", "BLOCKQUOTE", "CODE", "PRE", "A", "IMG",
 ]);
 
 function sanitizeNode(node: Node, out: Node[], doc: Document) {
@@ -38,6 +39,15 @@ function sanitizeNode(node: Node, out: Node[], doc: Document) {
       clean.setAttribute("rel", "noopener noreferrer");
     }
   }
+  if (el.tagName === "IMG") {
+    // Só aceita src https (a URL que a gente mesmo gera ao subir a imagem) —
+    // descarta data:/blob:/http: pra não abrir brecha de conteúdo externo/injetado.
+    const src = el.getAttribute("src");
+    if (!src || !/^https:\/\//i.test(src)) return;
+    clean.setAttribute("src", src);
+    const alt = el.getAttribute("alt");
+    if (alt) clean.setAttribute("alt", alt);
+  }
   childrenOut.forEach((c) => clean.appendChild(c));
   out.push(clean);
 }
@@ -58,7 +68,7 @@ function plainTextOf(html: string) {
 
 /** Classes compartilhadas pra listas/links renderizarem certo (sem plugin de typography). */
 const RICH_CONTENT_CLASSES =
-  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-brand [&_a]:underline [&_strong]:font-semibold [&_b]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px]";
+  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-brand [&_a]:underline [&_strong]:font-semibold [&_b]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px] [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md";
 
 function ToolbarButton({
   icon: Icon,
@@ -101,6 +111,7 @@ export function RichTextEditor({
   resetKey,
   className,
   collapsedHeight = 140,
+  onImagePaste,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -109,11 +120,14 @@ export function RichTextEditor({
   resetKey: string;
   className?: string;
   collapsedHeight?: number;
+  /** Sobe a imagem colada e devolve a URL pública pra inserir inline — sem isso, colar imagem não faz nada. */
+  onImagePaste?: (file: File) => Promise<string>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pendingPaste, setPendingPaste] = useState<{ html: string; text: string } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const checkOverflow = () => {
     requestAnimationFrame(() => {
@@ -136,7 +150,48 @@ export function RichTextEditor({
     emitChange();
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  /** Insere a imagem já enviada na posição do cursor, sem passar string por innerHTML (evita qualquer risco de injeção). */
+  const insertImage = (url: string, range: Range | null) => {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "imagem colada";
+    if (range) {
+      range.deleteContents();
+      range.insertNode(img);
+      range.setStartAfter(img);
+      range.setEndAfter(img);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    } else {
+      ref.current?.appendChild(img);
+    }
+    emitChange();
+    checkOverflow();
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const imageItem = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+    if (imageItem) {
+      e.preventDefault();
+      if (!onImagePaste) return;
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+      setUploadingImage(true);
+      try {
+        const url = await onImagePaste(file);
+        ref.current?.focus();
+        insertImage(url, range);
+      } catch {
+        toast.error("Não foi possível colar a imagem.");
+      } finally {
+        setUploadingImage(false);
+      }
+      return;
+    }
+
     e.preventDefault();
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
@@ -173,6 +228,7 @@ export function RichTextEditor({
         <ToolbarButton icon={ListOrdered} label="Lista numerada" onClick={() => exec("insertOrderedList")} />
         <span className="mx-1 h-4 w-px bg-border" />
         <ToolbarButton icon={Eraser} label="Limpar formatação" onClick={() => exec("removeFormat")} />
+        {uploadingImage && <span className="ml-1 text-xs text-muted-foreground">Enviando imagem…</span>}
       </div>
 
       {pendingPaste && (

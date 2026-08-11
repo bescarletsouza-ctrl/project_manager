@@ -39,6 +39,7 @@ import {
   linkTaskToProject,
   notifyAssignment,
   updateComment,
+  uploadDescriptionImage,
   uploadTaskAttachment,
   removeDependency,
   resolveMentions,
@@ -646,6 +647,7 @@ export function TaskPane({
                 onBlur={() => description !== (task.description ?? "") && patch.mutate({ description })}
                 placeholder="Do que se trata esta tarefa?"
                 className="mt-1"
+                onImagePaste={(file) => uploadDescriptionImage(task.id, file)}
               />
             </div>
 
