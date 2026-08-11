@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Bar as RBar,
   BarChart,
@@ -18,13 +19,16 @@ import {
 } from "recharts";
 import { TasksByPersonChart } from "@/components/dashboard/TasksByPersonChart";
 import { DeadlineStatusChart } from "@/components/dashboard/DeadlineStatusChart";
+import { WorkspaceCalendar } from "@/components/dashboard/WorkspaceCalendar";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
 import { PeriodComparePanel } from "@/components/dashboard/PeriodComparePanel";
 import { SectionsChart } from "@/components/dashboard/SectionsChart";
+import { TaskPane } from "@/components/TaskPane";
 import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
-import { useWorkspaceData, nameById, departmentIdsOf } from "@/lib/useData";
-import { sectionsQuery } from "@/lib/asana";
+import { useWorkspaceData, nameById, departmentIdsOf, useInvalidate } from "@/lib/useData";
+import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
+import { updateTask } from "@/lib/data";
 import {
   STATUS_META,
   STATUS_ORDER,
@@ -97,23 +101,43 @@ function filterByDate(tasks: Task[], from: string, to: string) {
 
 function Dashboard() {
   const { tasks, projects, members, departments, memberDepartments, events, isLoading } = useWorkspaceData();
-  const sectionsQ = useQuery(sectionsQuery);
-  const sections = sectionsQ.data ?? [];
+  const {
+    sections,
+    fields,
+    fieldValues,
+    comments,
+    dependencies,
+    taskProjects,
+    automations,
+    attachments,
+  } = useAsanaData();
+  const { member: currentMember, userId } = useCurrentMember();
   const [dateFrom, setDateFrom] = useState(daysAgoIso(30));
   const [dateTo, setDateTo] = useState(todayIso());
   const [activePreset, setActivePreset] = useState("30");
   const [selection, setSelection] = useState<Selection>(null);
+  const [openTask, setOpenTask] = useState<Task | null>(null);
   const drilldownRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => filterByDate(tasks, dateFrom, dateTo), [tasks, dateFrom, dateTo]);
 
   const openSelection = (title: string, list: Task[]) => setSelection({ title, tasks: list });
 
+  const invalidateTask = useInvalidate(["tasks"]);
+  const reschedule = useMutation({
+    mutationFn: (input: { id: string; due_date: string }) => updateTask(input.id, { due_date: input.due_date }),
+    onSuccess: () => invalidateTask(),
+    onError: () => toast.error("Não foi possível mudar o prazo."),
+  });
+
   useEffect(() => {
     if (selection) drilldownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [selection]);
 
   if (isLoading) return <SkeletonGrid />;
+
+  /** Igual ao Projeto/Departamento: openTask é só a âncora, live é a versão viva do cache. */
+  const live = openTask ? (tasks.find((t) => t.id === openTask.id) ?? null) : null;
 
   const done = filtered.filter(isDone);
   const open = filtered.filter(isOpen);
@@ -451,10 +475,40 @@ function Dashboard() {
         </div>
       </div>
 
+      <WorkspaceCalendar
+        tasks={tasks}
+        members={members}
+        projects={projects}
+        departments={departments}
+        onOpenTask={(t) => setOpenTask(t)}
+        onReschedule={(id, due_date) => reschedule.mutate({ id, due_date })}
+      />
+
       <p className="text-xs text-muted-foreground">
         Cycle time médio das entregas: {formatHours(avg(done.map(cycleTime)))} · Throughput no período:{" "}
         {done.length} tarefas · Velocity: {done.reduce((s, t) => s + t.complexity, 0)} pontos.
       </p>
+
+      {live && (
+        <TaskPane
+          task={live}
+          tasks={tasks}
+          members={members}
+          sections={sections}
+          fields={fields}
+          fieldValues={fieldValues}
+          comments={comments}
+          dependencies={dependencies}
+          projects={projects}
+          taskProjects={taskProjects}
+          automations={automations}
+          attachments={attachments}
+          currentMember={currentMember}
+          currentUserId={userId}
+          onClose={() => setOpenTask(null)}
+          onOpenTask={(t) => setOpenTask(t)}
+        />
+      )}
     </div>
   );
 }
