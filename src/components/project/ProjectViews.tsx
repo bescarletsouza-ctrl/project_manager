@@ -1123,6 +1123,7 @@ function TaskCells({
   columns,
   members,
   departments,
+  sections,
   allSections,
   automations,
   cols,
@@ -1132,6 +1133,8 @@ function TaskCells({
   columns: string[];
   members: Member[];
   departments: Department[];
+  /** Seções do projeto atual (a lista sendo exibida) — ver taskSections abaixo. */
+  sections: Section[];
   allSections: Section[];
   automations: Automation[];
   cols: ColumnWidths;
@@ -1139,11 +1142,25 @@ function TaskCells({
 }) {
   const patch = useTaskPatch(task, automations, allSections, currentMemberId);
   const has = (id: string) => columns.includes(id);
-  /** Mesma mescla do TaskPane: seções do projeto E do departamento da tarefa. */
-  const taskSections = allSections.filter(
-    (s) =>
-      (task.project_id != null && s.project_id === task.project_id) ||
-      (task.department_id != null && s.department_id === task.department_id),
+  /**
+   * Seções oferecidas no dropdown: as do projeto ATUAL sempre entram — sem
+   * isso, uma tarefa linkada aqui só via task_projects (o project_id dela
+   * aponta pra outro projeto/departamento) via mostrava dropdown sem nenhuma
+   * seção deste projeto pra escolher (não dava pra "incluir a seção").
+   * Também mantém as do project_id/department_id nativos da tarefa, pro caso
+   * de ela ter vindo de outro container e a pessoa querer mandar de volta.
+   */
+  const taskSections = Array.from(
+    new Map(
+      [
+        ...sections,
+        ...allSections.filter(
+          (s) =>
+            (task.project_id != null && s.project_id === task.project_id) ||
+            (task.department_id != null && s.department_id === task.department_id),
+        ),
+      ].map((s) => [s.id, s]),
+    ).values(),
   );
 
   /** Mesma largura e mesmo breakpoint do cabeçalho, senão as colunas desalinham. */
@@ -2148,7 +2165,7 @@ export function ListView({
                             </span>
                           ))}
                           <span onClick={(e) => e.stopPropagation()} className="contents">
-                            <TaskCells task={t} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
                           </span>
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
@@ -2225,7 +2242,7 @@ export function ListView({
                                 <DeadlinePill task={s} />
                               </span>
                               <span onClick={(e) => e.stopPropagation()} className="contents">
-                                <TaskCells task={s} columns={columns} members={members} departments={departments} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
                               </span>
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
