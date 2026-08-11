@@ -1167,6 +1167,7 @@ function TaskCells({
   automations,
   cols,
   currentMemberId,
+  sectionOf,
 }: {
   task: Task;
   columns: string[];
@@ -1178,6 +1179,13 @@ function TaskCells({
   automations: Automation[];
   cols: ColumnWidths;
   currentMemberId: string | null;
+  /**
+   * Seção "de verdade" da tarefa NESTE projeto: prioriza o vínculo em
+   * task_projects (onde tarefas com departamento guardam a seção do
+   * projeto) e só cai pro task.section_id nativo se não houver vínculo —
+   * mesma resolução que o Quadro já usa pra agrupar os cards.
+   */
+  sectionOf: (t: Task) => string;
 }) {
   const patch = useTaskPatch(task, automations, allSections, currentMemberId);
   const has = (id: string) => columns.includes(id);
@@ -1232,7 +1240,7 @@ function TaskCells({
           "lg",
           <InlineSelect
             label="Seção"
-            value={task.section_id ?? ""}
+            value={sectionOf(task)}
             onChange={(v) => patch.mutate({ section_id: v || null })}
             options={[{ value: "", label: "Sem seção" }, ...taskSections.map((s) => ({ value: s.id, label: s.name }))]}
           />,
@@ -2204,7 +2212,7 @@ export function ListView({
                             </span>
                           ))}
                           <span onClick={(e) => e.stopPropagation()} className="contents">
-                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} />
                           </span>
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
@@ -2281,7 +2289,7 @@ export function ListView({
                                 <DeadlinePill task={s} />
                               </span>
                               <span onClick={(e) => e.stopPropagation()} className="contents">
-                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} />
+                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} />
                               </span>
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
