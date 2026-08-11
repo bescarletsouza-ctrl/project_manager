@@ -761,8 +761,14 @@ function DepartmentDetail() {
                           }
                         }
                   }
-                  sortDir={manualOrder ? undefined : sortDirOf(section.id)}
-                  onToggleSort={manualOrder ? undefined : () => toggleSectionSort(section.id)}
+                  sortDir={sortDirOf(section.id)}
+                  onToggleSort={() => {
+                    // Clicar na seta é um pedido explícito de ordenar por prazo — tira do modo
+                    // manual se estiver ligado, senão o clique não mudava nada visível (a ordem
+                    // manual por posição continuava mandando, mesmo com a seta ali do lado).
+                    if (manualOrder) setManualOrder(false);
+                    toggleSectionSort(section.id);
+                  }}
                 />
 
                 <div className="mt-1 flex max-h-[65vh] flex-col gap-1.5 overflow-y-auto">
