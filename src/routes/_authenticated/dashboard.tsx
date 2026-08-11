@@ -32,11 +32,11 @@ import {
   cycleTime,
   daysWithoutMovement,
   formatHours,
+  busiestDueDay,
   isDone,
   isLate,
   isOpen,
   leadTime,
-  maxOpenTasksPerDay,
   pct,
   personMetrics,
   projectHealth,
@@ -394,13 +394,19 @@ function Dashboard() {
           <SectionTitle title="Colaboradores sobrecarregados" />
           <ul className="mt-3 space-y-3">
             {attention.overloaded.map((m) => (
-              <li key={m.member.id} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="truncate">{m.member.name}</span>
-                  <Pill tone={m.tone}>{m.label}</Pill>
-                </div>
-                <Bar value={m.barValue} />
-                <p className="text-xs text-muted-foreground">{m.detail}</p>
+              <li key={m.member.id}>
+                <button
+                  type="button"
+                  onClick={() => openSelection(`Sobrecarga — ${m.member.name}`, m.tasks)}
+                  className="w-full space-y-1 rounded-md text-left transition-opacity hover:opacity-80"
+                >
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="truncate">{m.member.name}</span>
+                    <Pill tone={m.tone}>{m.label}</Pill>
+                  </div>
+                  <Bar value={m.barValue} />
+                  <p className="text-xs text-muted-foreground">{m.detail}</p>
+                </button>
               </li>
             ))}
             {attention.overloaded.length === 0 && (
@@ -466,7 +472,8 @@ function computeOverloaded(members: Member[], tasks: Task[], departments: Depart
       const isDesign = !!designDept && departmentIdsOf(m, memberDepartments).includes(designDept.id);
 
       if (isDesign) {
-        const busiestDay = maxOpenTasksPerDay(tasks.filter((t) => t.assignee_id === m.id));
+        const busiest = busiestDueDay(tasks.filter((t) => t.assignee_id === m.id));
+        const busiestDay = busiest.tasks.length;
         return {
           member: m,
           triggered: busiestDay > DUE_SAME_DAY_OVERLOAD_THRESHOLD,
@@ -474,6 +481,7 @@ function computeOverloaded(members: Member[], tasks: Task[], departments: Depart
           label: "Sobrecarregado",
           detail: `${busiestDay} tarefas vencendo no mesmo dia (limite: ${DUE_SAME_DAY_OVERLOAD_THRESHOLD})`,
           barValue: Math.min(100, (busiestDay / (DUE_SAME_DAY_OVERLOAD_THRESHOLD * 2)) * 100),
+          tasks: busiest.tasks,
         };
       }
 
@@ -484,6 +492,7 @@ function computeOverloaded(members: Member[], tasks: Task[], departments: Depart
         label: metrics.loadLabel,
         detail: `${metrics.open} tarefas abertas · ${metrics.openPoints} pts / ${m.capacity_points} pts`,
         barValue: metrics.load * 100,
+        tasks: tasks.filter((t) => t.assignee_id === m.id && isOpen(t)),
       };
     })
     .filter((m) => m.triggered)

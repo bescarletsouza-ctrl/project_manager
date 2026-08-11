@@ -355,14 +355,22 @@ export function personMetrics(member: Member, tasks: Task[]) {
   };
 }
 
-/** Maior quantidade de tarefas abertas de uma pessoa vencendo no mesmo dia (due_date). */
-export function maxOpenTasksPerDay(tasks: Task[]) {
-  const counts: Record<string, number> = {};
+/** Dia (due_date) com mais tarefas abertas vencendo, e as tarefas desse dia. */
+export function busiestDueDay(tasks: Task[]): { date: string | null; tasks: Task[] } {
+  const byDate: Record<string, Task[]> = {};
   for (const t of tasks) {
     if (!isOpen(t) || !t.due_date) continue;
-    counts[t.due_date] = (counts[t.due_date] ?? 0) + 1;
+    (byDate[t.due_date] ??= []).push(t);
   }
-  return Object.values(counts).reduce((max, c) => Math.max(max, c), 0);
+  let date: string | null = null;
+  let list: Task[] = [];
+  for (const [d, ts] of Object.entries(byDate)) {
+    if (ts.length > list.length) {
+      date = d;
+      list = ts;
+    }
+  }
+  return { date, tasks: list };
 }
 
 export function projectHealth(project: Project, tasks: Task[]) {
