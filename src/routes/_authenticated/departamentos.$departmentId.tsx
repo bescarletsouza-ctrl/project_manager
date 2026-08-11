@@ -668,12 +668,12 @@ function DepartmentDetail() {
                   onClick={() => setManualOrder(false)}
                   className="btn btn-ghost px-2 py-0.5 text-xs"
                 >
-                  Voltar para ordem de criação
+                  Voltar para ordenação por prazo
                 </button>
               </>
             ) : (
               <span className="flex items-center gap-1">
-                <Check className="size-3.5 text-brand" /> Ordenado por mais recente — arraste uma tarefa pra ordenar manualmente
+                <Check className="size-3.5 text-brand" /> Ordenado por prazo — arraste uma tarefa pra ordenar manualmente, ou use a seta de cada seção
               </span>
             )}
           </div>

@@ -1269,6 +1269,8 @@ function SectionHeader({
   className,
   startEditing = false,
   onStopEditing,
+  sortDir,
+  onToggleSort,
 }: {
   section: Section;
   count: number;
@@ -1284,6 +1286,9 @@ function SectionHeader({
   /** Força entrar em modo edição — usado pelo menu de contexto "Renomear". */
   startEditing?: boolean | undefined;
   onStopEditing?: (() => void) | undefined;
+  /** Ordenação das tarefas desta seção por prazo — só o Quadro usa (a Lista já tem sort próprio no cabeçalho da grade). */
+  sortDir?: "asc" | "desc" | undefined;
+  onToggleSort?: (() => void) | undefined;
 }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => {
@@ -1330,6 +1335,17 @@ function SectionHeader({
         </button>
       )}
       <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+      {onToggleSort && (
+        <button
+          type="button"
+          onClick={onToggleSort}
+          aria-label={sortDir === "asc" ? "Ordenar por prazo mais distante primeiro" : "Ordenar por prazo mais próximo primeiro"}
+          title={sortDir === "asc" ? "Vence mais cedo primeiro — clique para inverter" : "Vence mais tarde primeiro — clique para inverter"}
+          className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+        >
+          {sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
+        </button>
+      )}
       {onAdd && (
         <button
           onClick={onAdd}
@@ -2277,6 +2293,9 @@ export function BoardView({
   // tarefa dentro da coluna liga a ordem manual, que passa a respeitar
   // position de verdade.
   const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
+  /** Ordenação por seção do Quadro, por prazo (due_date) — independe da ordenação manual. */
+  const [sectionSortDir, setSectionSortDir] = useState<Record<string, "asc" | "desc">>({});
+  const sortDirOf = (sectionId: string) => sectionSortDir[sectionId] ?? "desc";
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
@@ -2331,12 +2350,12 @@ export function BoardView({
               onClick={() => setManualOrder(false)}
               className="btn btn-ghost px-2 py-0.5 text-xs"
             >
-              Voltar para ordem de criação
+              Voltar para ordenação por prazo
             </button>
           </>
         ) : (
           <span className="flex items-center gap-1">
-            <Check className="size-3.5 text-brand" /> Ordenado por mais recente — arraste uma tarefa pra ordenar manualmente
+            <Check className="size-3.5 text-brand" /> Ordenado por prazo — arraste uma tarefa pra ordenar manualmente, ou use a seta de cada seção
           </span>
         )}
       </div>
@@ -2348,10 +2367,10 @@ export function BoardView({
           .sort(
             manualOrder
               ? (a, b) => (a.position ?? 0) - (b.position ?? 0)
-              // Padrão: mais recente em cima, ignorando position — assim uma
-              // tarefa recém-criada sempre entra no topo, sem depender de
-              // arraste nenhum.
-              : (a, b) => b.created_at.localeCompare(a.created_at),
+              // Sem prazo cai por último em qualquer direção — mesma convenção do "due_date" na Lista.
+              : sortDirOf(section.id) === "asc"
+                ? (a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
+                : (a, b) => (b.due_date ?? "0000-00-00").localeCompare(a.due_date ?? "0000-00-00"),
           );
         const listIds = list.map((t) => t.id);
         return (
@@ -2395,6 +2414,14 @@ export function BoardView({
                 className="px-1.5 py-1"
                 startEditing={renamingSectionId === section.id}
                 onStopEditing={() => setRenamingSectionId(null)}
+                sortDir={sortDirOf(section.id)}
+                onToggleSort={() => {
+                  // Clicar na seta é um pedido explícito de ordenar por prazo — tira do modo
+                  // manual se estiver ligado, senão o clique não mudava nada visível (a ordem
+                  // manual por posição continuava mandando, mesmo com a seta ali do lado).
+                  if (manualOrder) setManualOrder(false);
+                  setSectionSortDir((s) => ({ ...s, [section.id]: sortDirOf(section.id) === "desc" ? "asc" : "desc" }));
+                }}
               />
             </SectionContextMenu>
 
