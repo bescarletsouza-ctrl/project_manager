@@ -248,8 +248,16 @@ export async function moveTaskSection(
     container,
   );
 
-  if (isProjectTarget && task.project_id) {
-    await setTaskProjectSection(task.id, task.project_id, targetSectionId);
+  if (target?.project_id) {
+    // Usa o project_id da seção ESCOLHIDA, não o task.project_id nativo da
+    // tarefa: uma tarefa só vinculada via task_projects (sem project_id
+    // próprio, ou com project_id de OUTRO projeto) tinha esse branch pulado
+    // — caía no updateTask(section_id) abaixo, que grava em task.section_id,
+    // mas sectionOf() prioriza o section_id do vínculo task_projects. Ou
+    // seja: a troca "aplicava" mas nunca aparecia, porque escrevia no campo
+    // errado. Upsert em task_projects pelo project_id da seção resolve pra
+    // qualquer forma de vínculo da tarefa com o projeto.
+    await setTaskProjectSection(task.id, target.project_id, targetSectionId);
     // Tarefa sem departamento: task.section_id não serve a mais ninguém, então
     // espelhar aqui também mantém a coluna "Seção" da grade e o TaskPane
     // mostrando o valor certo sem depender do vínculo task_projects.
