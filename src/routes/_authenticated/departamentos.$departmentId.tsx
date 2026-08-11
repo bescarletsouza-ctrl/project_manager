@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { AutomationsPanel } from "@/components/AutomationsPanel";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
@@ -158,6 +158,11 @@ function DepartmentDetail() {
   const [view, setView] = useState<"board" | "list" | "auto">("board");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  /** Direção de ordenação por seção do Quadro (mais novo/mais antigo primeiro) — só vale fora da ordenação manual. */
+  const [sectionSortDir, setSectionSortDir] = useState<Record<string, "asc" | "desc">>({});
+  const sortDirOf = (sectionId: string) => sectionSortDir[sectionId] ?? "desc";
+  const toggleSectionSort = (sectionId: string) =>
+    setSectionSortDir((s) => ({ ...s, [sectionId]: sortDirOf(sectionId) === "desc" ? "asc" : "desc" }));
   const [columnPrefs, setColumnPref] = useDeptColumnPrefs(departmentId);
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -668,8 +673,9 @@ function DepartmentDetail() {
               .sort(
                 manualOrder
                   ? (a, b) => (a.position ?? 0) - (b.position ?? 0)
-                  // Padrão: mais nova em cima, igual ao Quadro do projeto.
-                  : (a, b) => b.created_at.localeCompare(a.created_at),
+                  : sortDirOf(section.id) === "asc"
+                    ? (a, b) => a.created_at.localeCompare(b.created_at)
+                    : (a, b) => b.created_at.localeCompare(a.created_at),
               );
             const listIds = list.map((t) => t.id);
 
@@ -730,6 +736,8 @@ function DepartmentDetail() {
                           }
                         }
                   }
+                  sortDir={manualOrder ? undefined : sortDirOf(section.id)}
+                  onToggleSort={manualOrder ? undefined : () => toggleSectionSort(section.id)}
                 />
 
                 <div className="mt-1 flex max-h-[65vh] flex-col gap-1.5 overflow-y-auto">
@@ -815,6 +823,8 @@ function SectionHeader({
   draggable,
   onDragStart,
   onDragEnd,
+  sortDir,
+  onToggleSort,
 }: {
   name: string;
   count: number;
@@ -829,6 +839,9 @@ function SectionHeader({
   draggable?: boolean;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  /** Ordenação por data das tarefas desta seção — ausente enquanto a ordem manual (arraste) estiver ativa. */
+  sortDir?: "asc" | "desc" | undefined;
+  onToggleSort?: (() => void) | undefined;
 }) {
   return (
     <div
@@ -868,6 +881,17 @@ function SectionHeader({
         </button>
       )}
       <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+      {onToggleSort && (
+        <button
+          type="button"
+          onClick={onToggleSort}
+          aria-label={sortDir === "asc" ? "Ordenar do mais novo pro mais antigo" : "Ordenar do mais antigo pro mais novo"}
+          title={sortDir === "asc" ? "Mais antiga primeiro — clique para inverter" : "Mais nova primeiro — clique para inverter"}
+          className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+        >
+          {sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
+        </button>
+      )}
       <button
         onClick={onAddTask}
         aria-label="Adicionar tarefa nesta seção"
@@ -1272,6 +1296,25 @@ function AddSection({ onAdd }: { onAdd: (name: string) => void }) {
 
 /* --------------------------- Visualização: Lista --------------------------- */
 
+const LIST_HEADER_LABEL_CLS = "truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
+
+/** Cabeçalho identificando as colunas da Lista — mesmas colunas configuráveis do Quadro (COLUMN_KEYS). */
+function ListColumnHeader({ columnPrefs }: { columnPrefs: ColumnPrefs }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/40 px-2 py-2">
+      <span className="w-4 shrink-0" />
+      <span className={cn(LIST_HEADER_LABEL_CLS, "min-w-0 flex-1")}>Tarefa</span>
+      {columnPrefs.projeto && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.projeto}</span>}
+      {columnPrefs.prioridade && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.prioridade}</span>}
+      {columnPrefs.status && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.status}</span>}
+      {columnPrefs.sprint && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.sprint}</span>}
+      {columnPrefs.etiquetas && <span className={cn(LIST_HEADER_LABEL_CLS, "w-24 shrink-0")}>{COLUMN_LABEL.etiquetas}</span>}
+      <span className={cn(LIST_HEADER_LABEL_CLS, "w-[116px] shrink-0 text-right")}>{COLUMN_LABEL.prazo}</span>
+      {columnPrefs.responsavel && <span className={cn(LIST_HEADER_LABEL_CLS, "w-8 shrink-0")}>{COLUMN_LABEL.responsavel}</span>}
+    </div>
+  );
+}
+
 /**
  * Lista agrupada por seção — cada bloco é colapsável, com cabeçalho igual ao
  * do quadro. Reusa os mesmos handlers (renomear seção, criar tarefa, abrir
@@ -1350,6 +1393,7 @@ function ListPanel({
 
   return (
     <div className="card-surface divide-y divide-border">
+      <ListColumnHeader columnPrefs={columnPrefs} />
       {boardSections.map((section) => {
         const isVirtual = !section.id;
         // Mesma regra da Board view: órfãs acompanham a 1ª seção real. O id
