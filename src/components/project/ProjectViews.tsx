@@ -625,6 +625,45 @@ export function useManualOrderPreference(id: string): [boolean, (v: boolean) => 
   return [manual, update];
 }
 
+/**
+ * Direção de ordenação por prazo de cada seção do Quadro (asc = vence
+ * primeiro, desc = vence depois), persistida por projeto/departamento —
+ * sem isso, trocar de aba (Lista/Quadro/Calendário) ou voltar depois
+ * "desfazia" a ordenação porque o estado só vivia em memória. Padrão é
+ * "asc": a prioridade de visualização é sempre vence-primeiro, a não ser
+ * que a pessoa troque manualmente (aí fica salvo).
+ */
+export function useSectionSortDir(scopeKey: string) {
+  const storageKey = `fluxo:section-sort:${scopeKey}`;
+  const [dirs, setDirs] = useState<Record<string, "asc" | "desc">>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    try {
+      const raw = localStorage.getItem(storageKey);
+      setDirs(raw ? (JSON.parse(raw) as Record<string, "asc" | "desc">) : {});
+    } catch {
+      setDirs({});
+    }
+    setLoaded(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(dirs));
+    } catch {
+      /* modo privado ou cota cheia: só afeta esta sessão */
+    }
+  }, [dirs, loaded, storageKey]);
+
+  const dirOf = (sectionId: string) => dirs[sectionId] ?? "asc";
+  const toggle = (sectionId: string) => setDirs((d) => ({ ...d, [sectionId]: dirOf(sectionId) === "asc" ? "desc" : "asc" }));
+
+  return { dirOf, toggle };
+}
+
 /** Alça de 6px na borda direita da coluna. */
 export function ResizeHandle({
   onResize,
@@ -2297,8 +2336,7 @@ export function BoardView({
   // position de verdade.
   const [manualOrder, setManualOrder] = useManualOrderPreference(projectId);
   /** Ordenação por seção do Quadro, por prazo (due_date) — independe da ordenação manual. */
-  const [sectionSortDir, setSectionSortDir] = useState<Record<string, "asc" | "desc">>({});
-  const sortDirOf = (sectionId: string) => sectionSortDir[sectionId] ?? "desc";
+  const { dirOf: sortDirOf, toggle: toggleSectionSort } = useSectionSortDir(projectId);
   const dnd = useDnd({
     sections,
     reorderSections: (ids) => reorderSections.mutate(ids),
@@ -2423,7 +2461,7 @@ export function BoardView({
                   // manual se estiver ligado, senão o clique não mudava nada visível (a ordem
                   // manual por posição continuava mandando, mesmo com a seta ali do lado).
                   if (manualOrder) setManualOrder(false);
-                  setSectionSortDir((s) => ({ ...s, [section.id]: sortDirOf(section.id) === "desc" ? "asc" : "desc" }));
+                  toggleSectionSort(section.id);
                 }}
               />
             </SectionContextMenu>

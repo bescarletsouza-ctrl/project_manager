@@ -63,6 +63,7 @@ import {
   TagPicker,
   useColumnWidths,
   useManualOrderPreference,
+  useSectionSortDir,
   type ColumnWidths,
 } from "@/components/project/ProjectViews";
 
@@ -197,10 +198,7 @@ function DepartmentDetail() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   /** Direção de ordenação por seção do Quadro, por prazo (due_date) — só vale fora da ordenação manual. */
-  const [sectionSortDir, setSectionSortDir] = useState<Record<string, "asc" | "desc">>({});
-  const sortDirOf = (sectionId: string) => sectionSortDir[sectionId] ?? "desc";
-  const toggleSectionSort = (sectionId: string) =>
-    setSectionSortDir((s) => ({ ...s, [sectionId]: sortDirOf(sectionId) === "desc" ? "asc" : "desc" }));
+  const { dirOf: sortDirOf, toggle: toggleSectionSort } = useSectionSortDir(`dept:${departmentId}`);
   const [columnPrefs, setColumnPref] = useDeptColumnPrefs(departmentId);
   const listCols = useColumnWidths(`dept-list:${departmentId}`, listColumnDefaultWidth);
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
