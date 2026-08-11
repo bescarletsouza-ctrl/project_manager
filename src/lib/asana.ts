@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { STATUS_META, type TaskStatus } from "./domain";
 
 /* ---------------- tipos ---------------- */
 
@@ -348,6 +349,42 @@ export const notifyAssignment = (
     },
   ]);
 };
+
+/** Status que disparam aviso pra quem está envolvido na tarefa. */
+const STATUS_MILESTONES = new Set<TaskStatus>(["concluido", "aguardando_aprovacao", "em_revisao"]);
+
+/**
+ * Avisa o responsável e quem foi @mencionado nos comentários da tarefa
+ * quando ela chega em conclusão, aprovação ou revisão — os 3 marcos que o
+ * time quer saber sem precisar ficar checando a tarefa toda hora. Outras
+ * mudanças de status (ex.: a_fazer → em_andamento) não avisam ninguém.
+ */
+export function notifyStatusMilestone(
+  task: { id: string; title: string; project_id: string | null; assignee_id: string | null },
+  nextStatus: TaskStatus,
+  comments: { id: string; task_id: string }[],
+  mentions: { comment_id: string; member_id: string }[],
+  actorMemberId: string | null,
+) {
+  if (!STATUS_MILESTONES.has(nextStatus)) return Promise.resolve();
+
+  const commentIds = new Set(comments.filter((c) => c.task_id === task.id).map((c) => c.id));
+  const targets = new Set(mentions.filter((m) => commentIds.has(m.comment_id)).map((m) => m.member_id));
+  if (task.assignee_id) targets.add(task.assignee_id);
+  if (actorMemberId) targets.delete(actorMemberId);
+  if (targets.size === 0) return Promise.resolve();
+
+  return createNotifications(
+    [...targets].map((member_id) => ({
+      member_id,
+      kind: "status",
+      title: `"${task.title}" mudou para ${STATUS_META[nextStatus]?.label ?? nextStatus}`,
+      task_id: task.id,
+      project_id: task.project_id,
+      actor_member_id: actorMemberId,
+    })),
+  );
+}
 
 export const markNotificationRead = (id: string) =>
   run(table("notifications").update({ read_at: new Date().toISOString() } as never).eq("id", id));

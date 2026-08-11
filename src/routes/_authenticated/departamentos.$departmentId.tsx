@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -40,10 +40,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SlidersHorizontal } from "lucide-react";
 import {
+  commentsQuery,
   createSection,
   createTaskLinked,
   deleteSection,
+  mentionsQuery,
   notifyAssignment,
+  notifyStatusMilestone,
   updateSection,
   type Automation,
 } from "@/lib/asana";
@@ -1039,6 +1042,8 @@ function TaskCard({
 }) {
   const invalidateTask = useInvalidate(["tasks"]);
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto: grava sem passar pelas automações (só status/assignee do toggle rodam automação). */
   const fieldPatch = useMutation({
     mutationFn: async (patch: Partial<Task>) => {
@@ -1070,6 +1075,9 @@ function TaskCard({
         { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
         moves,
       );
+      // Automação pode ter trocado o status de novo (set_status) — avisa pelo que ficou de verdade.
+      const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
@@ -1876,6 +1884,8 @@ function TaskRow({
   const done = task.status === "concluido";
   const invalidateTask = useInvalidate(["tasks"]);
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
 
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto. */
   const fieldPatch = useMutation({
@@ -1909,6 +1919,8 @@ function TaskRow({
         { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
         moves,
       );
+      const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),

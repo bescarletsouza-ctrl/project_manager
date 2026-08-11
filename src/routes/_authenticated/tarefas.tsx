@@ -155,7 +155,7 @@ function TasksPage() {
                       className="card-surface w-full cursor-pointer space-y-2 p-3 text-left transition-shadow hover:shadow-md"
                     >
                       <div className="flex items-start gap-2">
-                        <TaskCheck task={t} className="mt-0.5" />
+                        <TaskCheck task={t} className="mt-0.5" currentMemberId={currentMember?.id ?? null} />
                         <p className={`text-sm font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</p>
                       </div>
                       <div className="flex flex-wrap gap-1">
@@ -195,7 +195,7 @@ function TasksPage() {
               {filtered.map((t) => (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                    <TaskCheck task={t} />
+                    <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} />
                   </td>
                   <td className={`max-w-[300px] truncate px-4 py-2 font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</td>
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
@@ -304,7 +304,7 @@ function TaskDrawer({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2">
-            <TaskCheck task={task} className="mt-1" />
+            <TaskCheck task={task} className="mt-1" currentMemberId={currentMemberId} />
             <h2 className="text-lg font-semibold">{task.title}</h2>
           </div>
           <div className="flex items-center gap-3">

@@ -39,10 +39,13 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
+  commentsQuery,
   createSection,
   createTaskLinked,
   deleteSection,
+  mentionsQuery,
   notifyAssignment,
+  notifyStatusMilestone,
   setFieldValue,
   setTaskProjectSection,
   updateSection,
@@ -340,14 +343,18 @@ function useDnd({
 function TaskToggle({
   task,
   automations,
+  currentMemberId,
   size = "md",
 }: {
   task: Task;
   automations: Automation[];
+  currentMemberId?: string | null;
   size?: "sm" | "md";
 }) {
   const done = task.status === "concluido";
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
   const toggle = useMutation({
     mutationFn: async () => {
       const status = done ? "em_andamento" : "concluido";
@@ -359,6 +366,9 @@ function TaskToggle({
       );
       const res = await updateTask(task.id, { status, completed: !done, ...patch });
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
+      // Automação pode ter trocado o status de novo (set_status) — avisa pelo que ficou de verdade, não pelo toggle.
+      const finalStatus = (patch["status"] as Task["status"] | undefined) ?? status;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId ?? null);
       return res;
     },
     onSuccess: () => invalidateTaskAuto(),
@@ -2138,7 +2148,7 @@ export function ListView({
                               className="size-3.5 shrink-0 cursor-pointer"
                             />
                           </span>
-                          <TaskToggle task={t} automations={automations} />
+                          <TaskToggle task={t} automations={automations} currentMemberId={currentMemberId} />
                           {editingTaskId === t.id ? (
                             <input
                               autoFocus
@@ -2250,7 +2260,7 @@ export function ListView({
                                   className="size-3.5 shrink-0 cursor-pointer"
                                 />
                               </span>
-                              <TaskToggle task={s} automations={automations} size="sm" />
+                              <TaskToggle task={s} automations={automations} currentMemberId={currentMemberId} size="sm" />
                               {editingTaskId === s.id ? (
                                 <input
                                   autoFocus
@@ -2529,7 +2539,7 @@ export function BoardView({
                         </div>
                       )}
                       <div className="flex items-start gap-2">
-                        <TaskToggle task={t} automations={automations} size="sm" />
+                        <TaskToggle task={t} automations={automations} currentMemberId={currentMemberId} size="sm" />
                         {editingTaskId === t.id ? (
                           <input
                             autoFocus

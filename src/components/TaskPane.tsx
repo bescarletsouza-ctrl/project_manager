@@ -37,7 +37,9 @@ import {
   deleteTaskAttachment,
   getAttachmentUrl,
   linkTaskToProject,
+  mentionsQuery,
   notifyAssignment,
+  notifyStatusMilestone,
   updateComment,
   uploadDescriptionImage,
   uploadTaskAttachment,
@@ -113,6 +115,7 @@ export function TaskPane({
   const events = useQuery(statusEventsQuery).data ?? [];
   const fieldActivity = useQuery(taskFieldActivityQuery).data ?? [];
   const departments = useQuery(departmentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
 
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -212,18 +215,7 @@ export function TaskPane({
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra, completed: next === "concluido" });
         await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
-        if (task.assignee_id && task.assignee_id !== currentMember?.id) {
-          await createNotifications([
-            {
-              member_id: task.assignee_id,
-              kind: "status",
-              title: `"${task.title}" mudou para ${STATUS_META[next]?.label ?? next}`,
-              task_id: task.id,
-              project_id: task.project_id,
-              actor_member_id: currentMember?.id ?? null,
-            },
-          ]);
-        }
+        await notifyStatusMilestone(task, next, comments, mentions, currentMember?.id ?? null);
         return;
       }
 
@@ -659,7 +651,12 @@ export function TaskPane({
               <ul>
                 {subtasks.map((s) => (
                   <li key={s.id} className="group flex items-center gap-2 rounded-md py-1 pr-1 hover:bg-secondary/60">
-                    <SubtaskCheck task={s} />
+                    <SubtaskCheck
+                      task={s}
+                      comments={comments}
+                      mentions={mentions}
+                      currentMemberId={currentMember?.id ?? null}
+                    />
                     <button
                       onClick={() => onOpenTask(s)}
                       className={cn(
@@ -885,12 +882,25 @@ function formatDay(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-function SubtaskCheck({ task }: { task: Task }) {
+function SubtaskCheck({
+  task,
+  comments,
+  mentions,
+  currentMemberId,
+}: {
+  task: Task;
+  comments: TaskComment[];
+  mentions: { comment_id: string; member_id: string }[];
+  currentMemberId: string | null;
+}) {
   const invalidateTask = useInvalidate(["tasks"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
-    mutationFn: () =>
-      updateTask(task.id, { status: done ? "em_andamento" : "concluido", completed: !done }),
+    mutationFn: async () => {
+      const nextStatus = done ? "em_andamento" : "concluido";
+      await updateTask(task.id, { status: nextStatus, completed: !done });
+      await notifyStatusMilestone(task, nextStatus, comments, mentions, currentMemberId);
+    },
     onSuccess: () => invalidateTask(),
     onError: () => toast.error("Não foi possível atualizar."),
   });

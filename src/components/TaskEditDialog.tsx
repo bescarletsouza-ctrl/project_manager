@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SectionTitle } from "@/components/ui-bits";
 import { updateTask, deleteTask } from "@/lib/data";
-import { notifyAssignment } from "@/lib/asana";
+import { commentsQuery, mentionsQuery, notifyAssignment, notifyStatusMilestone } from "@/lib/asana";
 import { PRIORITIES, PRIORITY_LABEL, type Task } from "@/lib/domain";
 import { useInvalidate } from "@/lib/useData";
 
@@ -146,11 +146,25 @@ export function TaskEditDialog({
   );
 }
 
-export function TaskCheck({ task, className = "" }: { task: Task; className?: string }) {
+export function TaskCheck({
+  task,
+  className = "",
+  currentMemberId = null,
+}: {
+  task: Task;
+  className?: string;
+  currentMemberId?: string | null;
+}) {
   const invalidateTask = useInvalidate(["tasks"]);
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
   const done = task.status === "concluido";
   const toggle = useMutation({
-    mutationFn: () => updateTask(task.id, { status: done ? "em_andamento" : "concluido" }),
+    mutationFn: async () => {
+      const nextStatus = done ? "em_andamento" : "concluido";
+      await updateTask(task.id, { status: nextStatus });
+      await notifyStatusMilestone(task, nextStatus, comments, mentions, currentMemberId);
+    },
     onSuccess: () => {
       invalidateTask();
       toast.success(done ? "Tarefa reaberta." : "Tarefa concluída.");
