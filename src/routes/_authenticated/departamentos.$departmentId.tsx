@@ -180,7 +180,7 @@ function DepartmentDetail() {
   const [view, setView] = useState<"board" | "list" | "auto">("board");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  /** Direção de ordenação por seção do Quadro (mais novo/mais antigo primeiro) — só vale fora da ordenação manual. */
+  /** Direção de ordenação por seção do Quadro, por prazo (due_date) — só vale fora da ordenação manual. */
   const [sectionSortDir, setSectionSortDir] = useState<Record<string, "asc" | "desc">>({});
   const sortDirOf = (sectionId: string) => sectionSortDir[sectionId] ?? "desc";
   const toggleSectionSort = (sectionId: string) =>
@@ -697,9 +697,10 @@ function DepartmentDetail() {
               .sort(
                 manualOrder
                   ? (a, b) => (a.position ?? 0) - (b.position ?? 0)
+                  // Sem prazo cai por último em qualquer direção — mesma convenção do "due_date" na Lista do projeto.
                   : sortDirOf(section.id) === "asc"
-                    ? (a, b) => a.created_at.localeCompare(b.created_at)
-                    : (a, b) => b.created_at.localeCompare(a.created_at),
+                    ? (a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
+                    : (a, b) => (b.due_date ?? "0000-00-00").localeCompare(a.due_date ?? "0000-00-00"),
               );
             const listIds = list.map((t) => t.id);
 
@@ -909,8 +910,8 @@ function SectionHeader({
         <button
           type="button"
           onClick={onToggleSort}
-          aria-label={sortDir === "asc" ? "Ordenar do mais novo pro mais antigo" : "Ordenar do mais antigo pro mais novo"}
-          title={sortDir === "asc" ? "Mais antiga primeiro — clique para inverter" : "Mais nova primeiro — clique para inverter"}
+          aria-label={sortDir === "asc" ? "Ordenar por prazo mais distante primeiro" : "Ordenar por prazo mais próximo primeiro"}
+          title={sortDir === "asc" ? "Vence mais cedo primeiro — clique para inverter" : "Vence mais tarde primeiro — clique para inverter"}
           className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
         >
           {sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
