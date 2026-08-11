@@ -637,11 +637,35 @@ export function TaskPane({
                 resetKey={task.id}
                 value={description}
                 onChange={setDescription}
-                onBlur={() => description !== (task.description ?? "") && patch.mutate({ description })}
+                onBlur={() => {
+                  if (description === (task.description ?? "")) return;
+                  // Mesma regra do comentário: @Nome vira aviso "mencao" — só pra quem foi
+                  // mencionado de NOVO nessa edição, sem repetir aviso de menção já salva antes.
+                  const plainNow = description.replace(/<[^>]+>/g, " ");
+                  const plainBefore = (task.description ?? "").replace(/<[^>]+>/g, " ");
+                  const mentionedBefore = new Set(resolveMentions(plainBefore, members));
+                  const newlyMentioned = resolveMentions(plainNow, members).filter(
+                    (id) => !mentionedBefore.has(id) && id !== currentMember?.id,
+                  );
+                  patch.mutate({ description });
+                  if (newlyMentioned.length) {
+                    createNotifications(
+                      newlyMentioned.map((member_id) => ({
+                        member_id,
+                        kind: "mencao",
+                        title: `${currentMember?.name ?? "Alguém"} te mencionou em "${task.title}"`,
+                        task_id: task.id,
+                        project_id: task.project_id,
+                        actor_member_id: currentMember?.id ?? null,
+                      })),
+                    );
+                  }
+                }}
                 placeholder="Do que se trata esta tarefa?"
                 className="mt-1"
                 onImagePaste={(file) => uploadDescriptionImage(task.id, file)}
                 onLinkPreview={(url) => fetchLinkPreview(url)}
+                members={members}
               />
             </div>
 

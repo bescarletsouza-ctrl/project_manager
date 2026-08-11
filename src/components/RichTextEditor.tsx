@@ -1,7 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Bold, ChevronDown, ChevronUp, Eraser, Italic, List, ListOrdered, Strikethrough, Underline } from "lucide-react";
+import {
+  Bold,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Eraser,
+  ExternalLink,
+  Italic,
+  List,
+  ListOrdered,
+  Strikethrough,
+  Underline,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type LinkPreviewData = { title: string; description: string; image: string | null; siteName: string };
+type LinkDisplayMode = "card" | "inline" | "url";
+const LP_MODE_LABEL: Record<LinkDisplayMode, string> = {
+  card: "Pré-visualização",
+  inline: "Link em linha",
+  url: "URL",
+};
 
 /** Formatação semântica permitida — sem estilos/cores/fontes coladas de fora, que quebrariam o visual do app. */
 const ALLOWED_TAGS = new Set([
@@ -10,8 +30,20 @@ const ALLOWED_TAGS = new Set([
   "H1", "H2", "H3", "BLOCKQUOTE", "CODE", "PRE", "A", "IMG",
 ]);
 
-/** Únicas classes que sobrevivem à sanitização — só as do card de preview de link (ver buildLinkCard). */
-const ALLOWED_CLASSES = new Set(["link-preview-card", "lp-thumb", "lp-body", "lp-title", "lp-desc", "lp-site"]);
+/** Únicas classes que sobrevivem à sanitização — só as do card de preview de link (ver buildLinkNode). */
+const ALLOWED_CLASSES = new Set([
+  "link-preview-card",
+  "link-preview-inline",
+  "link-preview-url",
+  "lp-thumb",
+  "lp-body",
+  "lp-title",
+  "lp-desc",
+  "lp-site",
+]);
+
+/** Atributos data-lp-* preservados num link com preview — guardam os metadados mesmo quando o modo exibido é "inline"/"url", pra poder voltar pra "Pré-visualização" depois sem buscar de novo. */
+const LP_DATA_ATTRS = ["data-lp", "data-lp-title", "data-lp-desc", "data-lp-site"];
 
 function sanitizeNode(node: Node, out: Node[], doc: Document) {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -42,6 +74,14 @@ function sanitizeNode(node: Node, out: Node[], doc: Document) {
       clean.setAttribute("href", href);
       clean.setAttribute("target", "_blank");
       clean.setAttribute("rel", "noopener noreferrer");
+    }
+    if (el.getAttribute("data-lp") === "1") {
+      for (const attr of LP_DATA_ATTRS) {
+        const v = el.getAttribute(attr);
+        if (v) clean.setAttribute(attr, v);
+      }
+      const image = el.getAttribute("data-lp-image");
+      if (image && /^https:\/\//i.test(image)) clean.setAttribute("data-lp-image", image);
     }
   }
   if (el.tagName === "IMG") {
@@ -125,6 +165,7 @@ export function RichTextEditor({
   collapsedHeight = 140,
   onImagePaste,
   onLinkPreview,
+  members,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -136,7 +177,9 @@ export function RichTextEditor({
   /** Sobe a imagem colada e devolve a URL pública pra inserir inline — sem isso, colar imagem não faz nada. */
   onImagePaste?: (file: File) => Promise<string>;
   /** Busca título/descrição/imagem de um link colado sozinho — sem isso, o link só entra como texto/URL normal. */
-  onLinkPreview?: (url: string) => Promise<{ title: string; description: string; image: string | null; siteName: string } | null>;
+  onLinkPreview?: (url: string) => Promise<LinkPreviewData | null>;
+  /** Lista pra autocompletar @menção — sem isso, digitar @ não sugere ninguém. */
+  members?: { id: string; name: string }[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pendingPaste, setPendingPaste] = useState<{ html: string; text: string } | null>(null);
@@ -144,6 +187,24 @@ export function RichTextEditor({
   const [canExpand, setCanExpand] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [fetchingLink, setFetchingLink] = useState(false);
+  /** Link clicado no editor cujo menu "Exibir como" está aberto. */
+  const [linkMenu, setLinkMenu] = useState<{ el: HTMLAnchorElement; x: number; y: number } | null>(null);
+  /** @menção sendo digitada — mesma regra do comentário: "@" seguido de nome, sem espaço. */
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionRect, setMentionRect] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!linkMenu) return;
+    const close = () => setLinkMenu(null);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [linkMenu]);
+
+  const mentionMatches =
+    mentionQuery === null || !members
+      ? []
+      : members.filter((m) => m.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6);
 
   const checkOverflow = () => {
     requestAnimationFrame(() => {
@@ -159,6 +220,52 @@ export function RichTextEditor({
   }, [resetKey]);
 
   const emitChange = () => onChange(ref.current?.innerHTML ?? "");
+
+  /** Olha o texto antes do cursor: se termina em "@parcial", abre o autocomplete. */
+  const detectMention = () => {
+    if (!members) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed || sel.getRangeAt(0).startContainer.nodeType !== Node.TEXT_NODE) {
+      setMentionQuery(null);
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const text = range.startContainer.textContent ?? "";
+    const uptoCursor = text.slice(0, range.startOffset);
+    const match = uptoCursor.match(/(?:^|\s)@([\p{L}\d._-]{0,30})$/u);
+    if (!match) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionQuery(match[1] ?? "");
+    setMentionIndex(0);
+    const rect = range.cloneRange().getBoundingClientRect();
+    setMentionRect({ x: rect.left, y: rect.bottom + 4 });
+  };
+
+  /** Troca o "@parcial" digitado pelo nome completo, dentro do mesmo nó de texto. */
+  const pickMention = (member: { id: string; name: string }) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return;
+    const text = node.textContent ?? "";
+    const uptoCursor = text.slice(0, range.startOffset);
+    const atIndex = uptoCursor.lastIndexOf("@");
+    if (atIndex === -1) return;
+    const inserted = `@${member.name} `;
+    node.textContent = text.slice(0, atIndex) + inserted + text.slice(range.startOffset);
+    const pos = atIndex + inserted.length;
+    const newRange = document.createRange();
+    newRange.setStart(node, pos);
+    newRange.setEnd(node, pos);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    setMentionQuery(null);
+    ref.current?.focus();
+    emitChange();
+  };
 
   const exec = (cmd: string, arg?: string) => {
     ref.current?.focus();
@@ -190,16 +297,32 @@ export function RichTextEditor({
     insertNodeAtRange(img, range);
   };
 
-  /** Card clicável com imagem/título/descrição — mesma estrutura que ALLOWED_CLASSES libera na sanitização. */
-  const insertLinkCard = (
-    url: string,
-    data: { title: string; description: string; image: string | null; siteName: string },
-    range: Range | null,
-  ) => {
+  /**
+   * Constrói o link com preview num dos 3 formatos (card/inline/url). Os
+   * metadados ficam salvos em data-lp-* independente do modo mostrado, pra
+   * trocar de formato depois (menu "Exibir como") sem buscar de novo.
+   */
+  const buildLinkNode = (url: string, data: LinkPreviewData, mode: LinkDisplayMode) => {
     const a = document.createElement("a");
     a.href = url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
+    a.setAttribute("data-lp", "1");
+    a.setAttribute("data-lp-title", data.title);
+    a.setAttribute("data-lp-desc", data.description);
+    a.setAttribute("data-lp-site", data.siteName);
+    if (data.image) a.setAttribute("data-lp-image", data.image);
+
+    if (mode === "url") {
+      a.className = "link-preview-url";
+      a.textContent = url;
+      return a;
+    }
+    if (mode === "inline") {
+      a.className = "link-preview-inline";
+      a.textContent = data.title || url;
+      return a;
+    }
     a.className = "link-preview-card";
     if (data.image) {
       const img = document.createElement("img");
@@ -225,8 +348,11 @@ export function RichTextEditor({
     site.textContent = data.siteName;
     body.appendChild(site);
     a.appendChild(body);
-    insertNodeAtRange(a, range);
+    return a;
   };
+
+  const insertLinkPreview = (url: string, data: LinkPreviewData, range: Range | null) =>
+    insertNodeAtRange(buildLinkNode(url, data, "card"), range);
 
   const insertPlainLink = (url: string, range: Range | null) => {
     const a = document.createElement("a");
@@ -235,6 +361,33 @@ export function RichTextEditor({
     a.rel = "noopener noreferrer";
     a.textContent = url;
     insertNodeAtRange(a, range);
+  };
+
+  /** Lê os metadados salvos no link clicado e reconstrói no formato escolhido. */
+  const switchLinkMode = (el: HTMLAnchorElement, mode: LinkDisplayMode) => {
+    const data: LinkPreviewData = {
+      title: el.getAttribute("data-lp-title") ?? "",
+      description: el.getAttribute("data-lp-desc") ?? "",
+      image: el.getAttribute("data-lp-image"),
+      siteName: el.getAttribute("data-lp-site") ?? "",
+    };
+    const url = el.getAttribute("href") ?? "";
+    el.replaceWith(buildLinkNode(url, data, mode));
+    setLinkMenu(null);
+    emitChange();
+    checkOverflow();
+  };
+
+  const currentLinkMode = (el: HTMLAnchorElement): LinkDisplayMode =>
+    el.classList.contains("link-preview-inline") ? "inline" : el.classList.contains("link-preview-url") ? "url" : "card";
+
+  /** Clique num link com preview abre o menu "Exibir como" em vez de navegar — evita sair da tarefa sem querer ao editar. */
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = (e.target as HTMLElement).closest('a[data-lp="1"]') as HTMLAnchorElement | null;
+    if (!target) return;
+    e.preventDefault();
+    const rect = target.getBoundingClientRect();
+    setLinkMenu({ el: target, x: rect.left, y: rect.bottom + 4 });
   };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -263,8 +416,10 @@ export function RichTextEditor({
     const text = e.clipboardData.getData("text/plain");
     const bareUrl = text.trim();
 
-    // Link colado sozinho (nada mais no clipboard): busca a preview em vez de colar como texto puro.
-    if (onLinkPreview && !html.trim() && /^https?:\/\/\S+$/i.test(bareUrl)) {
+    // Link colado sozinho (nada mais como texto): busca a preview em vez de colar como link cru.
+    // Não exige html vazio — copiar uma URL da barra de endereço ou de várias páginas já vem com
+    // um <html> junto (ex.: um <a> embrulhando o mesmo link), e isso não deveria bloquear a preview.
+    if (onLinkPreview && /^https?:\/\/\S+$/i.test(bareUrl)) {
       e.preventDefault();
       const selection = window.getSelection();
       const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
@@ -272,10 +427,14 @@ export function RichTextEditor({
       try {
         const data = await onLinkPreview(bareUrl);
         ref.current?.focus();
-        if (data) insertLinkCard(bareUrl, data, range);
-        else insertPlainLink(bareUrl, range);
+        if (data) insertLinkPreview(bareUrl, data, range);
+        else {
+          toast.error("Não achei informações desse link — colei como link normal.");
+          insertPlainLink(bareUrl, range);
+        }
       } catch {
         ref.current?.focus();
+        toast.error("Não foi possível buscar a preview do link.");
         insertPlainLink(bareUrl, range);
       } finally {
         setFetchingLink(false);
@@ -364,9 +523,30 @@ export function RichTextEditor({
           onInput={() => {
             emitChange();
             checkOverflow();
+            detectMention();
           }}
           onPaste={handlePaste}
-          onBlur={onBlur}
+          onBlur={() => {
+            setMentionQuery(null);
+            onBlur?.();
+          }}
+          onClick={handleEditorClick}
+          onKeyDown={(e) => {
+            if (mentionQuery === null || mentionMatches.length === 0) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setMentionIndex((i) => (i + 1) % mentionMatches.length);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
+            } else if (e.key === "Enter" || e.key === "Tab") {
+              e.preventDefault();
+              const chosen = mentionMatches[mentionIndex];
+              if (chosen) pickMention(chosen);
+            } else if (e.key === "Escape") {
+              setMentionQuery(null);
+            }
+          }}
           style={{ maxHeight: expanded ? undefined : collapsedHeight }}
           className={cn(
             "min-h-24 overflow-hidden px-3 py-2 text-sm outline-none",
@@ -377,6 +557,59 @@ export function RichTextEditor({
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background to-transparent" />
         )}
       </div>
+
+      {linkMenu && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ left: linkMenu.x, top: linkMenu.y }}
+          className="fixed z-50 w-52 rounded-md border border-border bg-popover p-1 text-xs shadow-[var(--shadow-raised)]"
+        >
+          <p className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase">Exibir como</p>
+          {(["inline", "card", "url"] as LinkDisplayMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => switchLinkMode(linkMenu.el, mode)}
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left hover:bg-secondary"
+            >
+              {LP_MODE_LABEL[mode]}
+              {currentLinkMode(linkMenu.el) === mode && <Check className="size-3.5 text-brand" />}
+            </button>
+          ))}
+          <div className="my-1 h-px bg-border" />
+          <a
+            href={linkMenu.el.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setLinkMenu(null)}
+            className="flex items-center gap-1.5 rounded px-2 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <ExternalLink className="size-3.5" /> Abrir link
+          </a>
+        </div>
+      )}
+
+      {mentionQuery !== null && mentionMatches.length > 0 && mentionRect && (
+        <div
+          style={{ left: mentionRect.x, top: mentionRect.y }}
+          className="fixed z-50 w-56 rounded-md border border-border bg-popover p-1 text-xs shadow-[var(--shadow-raised)]"
+        >
+          {mentionMatches.map((m, i) => (
+            <button
+              key={m.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickMention(m)}
+              className={cn(
+                "flex w-full items-center rounded px-2 py-1.5 text-left hover:bg-secondary",
+                i === mentionIndex && "bg-secondary",
+              )}
+            >
+              {m.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {canExpand && (
         <button
