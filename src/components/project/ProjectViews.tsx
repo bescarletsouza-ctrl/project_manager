@@ -527,8 +527,11 @@ const MAX_COLUMN_WIDTH = 480;
 /** Piso da coluna de nome: sem isso, colunas largas o suficiente a espremem a ilegibilidade. */
 const TITLE_MIN_WIDTH = 220;
 
-const defaultWidth = (id: string) =>
-  COLUMN_DEFS.find((c) => c.id === id)?.width ?? CUSTOM_FIELD_WIDTH;
+const defaultWidth = (id: string) => {
+  if (id === "title") return TITLE_MIN_WIDTH;
+  if (id === "deadline_status") return DEADLINE_STATUS_WIDTH;
+  return COLUMN_DEFS.find((c) => c.id === id)?.width ?? CUSTOM_FIELD_WIDTH;
+};
 
 /**
  * Larguras de coluna por projeto. Ficam no localStorage: é preferência de
@@ -799,25 +802,8 @@ function TaskHeader({
         />
       </span>
       <span className="size-[18px] shrink-0" />
-      <button
-        type="button"
-        onClick={() => onSort("title")}
-        style={{ minWidth: TITLE_MIN_WIDTH }}
-        className={cn(
-          "group flex min-w-0 flex-1 items-center gap-1",
-          labelCls,
-          sort?.key === "title" ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        <span className="truncate">Nome da tarefa</span>
-        {arrow("title")}
-      </button>
-      <span
-        style={{ width: DEADLINE_STATUS_WIDTH }}
-        className={cn("shrink-0 items-center self-stretch", SHOW["none"], labelCls, "text-muted-foreground")}
-      >
-        Status
-      </span>
+      {column("title", "Nome da tarefa", "none", "title")}
+      {column("deadline_status", "Status", "none")}
       {fields.map((f) => column(`cf:${f.id}`, f.name, "none"))}
       {COLUMN_DEFS.filter((c) => columns.includes(c.id)).map((c) => column(c.id, c.label, c.bp, c.id))}
       <span className="size-6 shrink-0" />
@@ -2094,7 +2080,7 @@ export function ListView({
                               autoFocus
                               defaultValue={t.title}
                               maxLength={140}
-                              style={{ minWidth: TITLE_MIN_WIDTH }}
+                              style={{ width: cols.widthOf("title") }}
                               onClick={(e) => e.stopPropagation()}
                               onBlur={(e) => {
                                 const v = e.target.value.trim();
@@ -2106,10 +2092,10 @@ export function ListView({
                                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                                 if (e.key === "Escape") setEditingTaskId(null);
                               }}
-                              className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+                              className="shrink-0 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
                             />
                           ) : (
-                            <div style={{ minWidth: TITLE_MIN_WIDTH }} className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <div style={{ width: cols.widthOf("title") }} className="flex shrink-0 items-center gap-1.5">
                               {subs.length > 0 && (
                                 <ChevronRight
                                   onClick={(e) => {
@@ -2129,7 +2115,7 @@ export function ListView({
                                   setEditingTaskId(t.id);
                                 }}
                                 className={cn(
-                                  "truncate text-sm hover:underline",
+                                  "min-w-0 flex-1 truncate text-sm hover:underline",
                                   t.status === "concluido" && "text-muted-foreground line-through",
                                 )}
                               >
@@ -2142,7 +2128,7 @@ export function ListView({
                               )}
                             </div>
                           )}
-                          <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
+                          <span style={{ width: cols.widthOf("deadline_status") }} className="flex shrink-0 items-center">
                             <DeadlinePill task={t} />
                           </span>
                           {visibleFields.map((f) => (
@@ -2206,7 +2192,7 @@ export function ListView({
                                   autoFocus
                                   defaultValue={s.title}
                                   maxLength={140}
-                                  style={{ minWidth: TITLE_MIN_WIDTH }}
+                                  style={{ width: cols.widthOf("title") }}
                                   onClick={(e) => e.stopPropagation()}
                                   onBlur={(e) => {
                                     const v = e.target.value.trim();
@@ -2218,7 +2204,7 @@ export function ListView({
                                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                                     if (e.key === "Escape") setEditingTaskId(null);
                                   }}
-                                  className="min-w-0 flex-1 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
+                                  className="shrink-0 rounded-md border border-ring bg-background px-1.5 py-0.5 text-sm focus:outline-none"
                                 />
                               ) : (
                                 <span
@@ -2226,16 +2212,16 @@ export function ListView({
                                     e.stopPropagation();
                                     setEditingTaskId(s.id);
                                   }}
-                                  style={{ minWidth: TITLE_MIN_WIDTH }}
+                                  style={{ width: cols.widthOf("title") }}
                                   className={cn(
-                                    "min-w-0 flex-1 truncate text-sm hover:underline",
+                                    "min-w-0 shrink-0 truncate text-sm hover:underline",
                                     s.status === "concluido" && "text-muted-foreground line-through",
                                   )}
                                 >
                                   {s.title}
                                 </span>
                               )}
-                              <span style={{ width: DEADLINE_STATUS_WIDTH }} className="flex shrink-0 items-center">
+                              <span style={{ width: cols.widthOf("deadline_status") }} className="flex shrink-0 items-center">
                                 <DeadlinePill task={s} />
                               </span>
                               <span onClick={(e) => e.stopPropagation()} className="contents">
