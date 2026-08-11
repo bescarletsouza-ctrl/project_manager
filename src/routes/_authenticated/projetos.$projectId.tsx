@@ -248,7 +248,7 @@ function ProjectDetail() {
     .filter((v): v is (typeof VIEWS)[number] => Boolean(v));
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [editing, setEditing] = useState(false);
-  const [filters, setFilters] = useState({ term: "", assignee: "", status: "", hideDone: false });
+  const [filters, setFilters] = useState({ term: "", assignee: "", status: "", hideDone: false, from: "", to: "" });
 
   const remove = useMutation({
     mutationFn: () => deleteProject(projectId),
@@ -288,6 +288,9 @@ function ProjectDetail() {
       if (filters.assignee && t.assignee_id !== filters.assignee) return false;
       if (filters.status && t.status !== filters.status) return false;
       if (filters.hideDone && t.status === "concluido") return false;
+      const created = t.created_at.slice(0, 10);
+      if (filters.from && created < filters.from) return false;
+      if (filters.to && created > filters.to) return false;
       return true;
     });
   }, [projectTasks, filters]);
@@ -323,7 +326,7 @@ function ProjectDetail() {
   const projectAutomations = automations.filter((a) => a.project_id === projectId);
   const health = projectHealth(project, projectTasks.map((t) => ({ ...t, project_id: projectId })));
   const live = openTask ? (tasks.find((t) => t.id === openTask.id) ?? null) : null;
-  const filtersOn = Boolean(filters.term || filters.assignee || filters.status || filters.hideDone);
+  const filtersOn = Boolean(filters.term || filters.assignee || filters.status || filters.hideDone || filters.from || filters.to);
 
   const team = members.filter((m) => projectTasks.some((t) => t.assignee_id === m.id));
   const hasAccess = hasProjectAccess(role, currentMember?.id ?? null, project, tasks, taskProjects);
@@ -535,9 +538,27 @@ function ProjectDetail() {
             />
             Ocultar concluídas
           </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            De
+            <input
+              type="date"
+              value={filters.from}
+              onChange={(e) => setFilters({ ...filters, from: e.target.value })}
+              className="field h-8 w-auto"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            Até
+            <input
+              type="date"
+              value={filters.to}
+              onChange={(e) => setFilters({ ...filters, to: e.target.value })}
+              className="field h-8 w-auto"
+            />
+          </label>
           {filtersOn && (
             <button
-              onClick={() => setFilters({ term: "", assignee: "", status: "", hideDone: false })}
+              onClick={() => setFilters({ term: "", assignee: "", status: "", hideDone: false, from: "", to: "" })}
               className="btn btn-ghost px-2 py-1 text-xs"
             >
               Limpar filtros

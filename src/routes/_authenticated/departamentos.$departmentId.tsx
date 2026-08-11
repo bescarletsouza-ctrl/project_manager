@@ -156,6 +156,8 @@ function DepartmentDetail() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editHeader, setEditHeader] = useState(false);
   const [view, setView] = useState<"board" | "list" | "auto">("board");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [columnPrefs, setColumnPref] = useDeptColumnPrefs(departmentId);
   /** Card em arraste (task id + seção de origem). Compartilhado por todas as colunas. */
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -342,7 +344,13 @@ function DepartmentDetail() {
     ids.splice(at < 0 ? ids.length : at, 0, dragSectionId);
     reorderSections.mutate(ids);
   };
-  const deptTasks = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
+  const deptTasks = tasks.filter((t) => {
+    if (t.department_id !== departmentId || t.parent_task_id) return false;
+    const created = t.created_at.slice(0, 10);
+    if (dateFrom && created < dateFrom) return false;
+    if (dateTo && created > dateTo) return false;
+    return true;
+  });
   const deptMembers = members.filter((m) => departmentIdsOf(m, memberDepartments).includes(departmentId));
   /**
    * TaskPane precisa receber o objeto FRESCO do cache — se receber o
@@ -454,6 +462,36 @@ function DepartmentDetail() {
           <Pill>{deptMembers.length} pessoas no departamento</Pill>
         </div>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            De
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="field h-8 w-auto"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            Até
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="field h-8 w-auto"
+            />
+          </label>
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="btn btn-ghost px-2 py-1 text-xs"
+            >
+              Limpar
+            </button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
