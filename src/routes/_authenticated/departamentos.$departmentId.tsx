@@ -2,8 +2,24 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Columns3, Flag, List, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  Flag,
+  List,
+  Pencil,
+  Plus,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { AutomationsPanel } from "@/components/AutomationsPanel";
+import { Avatar } from "@/components/Avatar";
 import { EmptyState, Pill, RowMenu, StatusBadge } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { NewTaskDialog } from "@/components/dialogs";
@@ -177,7 +193,7 @@ function DepartmentDetail() {
   const [newTask, setNewTask] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [editHeader, setEditHeader] = useState(false);
-  const [view, setView] = useState<"board" | "list" | "auto">("board");
+  const [view, setView] = useState<"board" | "list" | "calendar" | "auto">("board");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   /** Direção de ordenação por seção do Quadro, por prazo (due_date) — só vale fora da ordenação manual. */
@@ -322,7 +338,7 @@ function DepartmentDetail() {
    * cai na 1ª do departamento (regra do produto).
    */
   const quickAddTask = useMutation({
-    mutationFn: async (input: { title: string; sectionId: string | null }) => {
+    mutationFn: async (input: { title: string; sectionId: string | null; dueDate?: string | null }) => {
       const base: Record<string, unknown> = {
         title: input.title,
         project_id: null,
@@ -330,6 +346,7 @@ function DepartmentDetail() {
         section_id: input.sectionId ?? firstSectionId,
         status: "a_fazer",
         assignee_id: currentMember?.id ?? null,
+        due_date: input.dueDate ?? null,
       };
       const { patch, applied, moves } = runAutomations(
         automations,
@@ -345,6 +362,13 @@ function DepartmentDetail() {
     onSuccess: () => invalidateTaskAuto(),
     onError: (e: unknown) =>
       toast.error(`Não foi possível criar a tarefa: ${(e as Error)?.message ?? "erro"}`),
+  });
+
+  /** Arrastar um card pra outro dia no Calendário muda o prazo. */
+  const reschedule = useMutation({
+    mutationFn: (input: { id: string; due_date: string }) => updateTask(input.id, { due_date: input.due_date }),
+    onSuccess: () => invalidateTaskAuto(),
+    onError: () => toast.error("Não foi possível mudar o prazo."),
   });
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
@@ -372,6 +396,8 @@ function DepartmentDetail() {
     ids.splice(at < 0 ? ids.length : at, 0, dragSectionId);
     reorderSections.mutate(ids);
   };
+  /** Sem o filtro De/Até (que é por data de criação) — o Calendário navega por mês e quer ver tudo que tem prazo. */
+  const deptTasksAll = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
   const deptTasks = tasks.filter((t) => {
     if (t.department_id !== departmentId || t.parent_task_id) return false;
     const created = t.created_at.slice(0, 10);
@@ -575,6 +601,18 @@ function DepartmentDetail() {
           </button>
           <button
             type="button"
+            onClick={() => setView("calendar")}
+            className={cn(
+              "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
+              view === "calendar"
+                ? "bg-secondary font-medium"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <CalendarDays className="size-3.5" /> Calendário
+          </button>
+          <button
+            type="button"
             onClick={() => setView("auto")}
             className={cn(
               "flex items-center gap-1.5 rounded px-2 py-1 transition-colors",
@@ -651,6 +689,15 @@ function DepartmentDetail() {
             setOverSectionId(null);
           }}
           currentMemberId={currentMember?.id ?? null}
+        />
+      ) : view === "calendar" ? (
+        <CalendarPanel
+          tasks={deptTasksAll}
+          members={members}
+          firstSectionId={firstSectionId}
+          onAddTask={(title, sectionId, dueDate) => quickAddTask.mutate({ title, sectionId, dueDate })}
+          onReschedule={(id, dueDate) => reschedule.mutate({ id, due_date: dueDate })}
+          onOpenTask={(t) => setOpenTask(t)}
         />
       ) : boardSections.length === 0 ? (
         <EmptyState
@@ -1322,6 +1369,196 @@ function AddSection({ onAdd }: { onAdd: (name: string) => void }) {
         className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-ring focus:outline-none"
       />
     </form>
+  );
+}
+
+/* --------------------------- Visualização: Calendário --------------------------- */
+
+const CALENDAR_WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+
+function calendarIso(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Calendário mensal do departamento — mesmo padrão do Calendário do projeto (arrastar muda o prazo). */
+function CalendarPanel({
+  tasks,
+  members,
+  firstSectionId,
+  onAddTask,
+  onReschedule,
+  onOpenTask,
+}: {
+  tasks: Task[];
+  members: Member[];
+  firstSectionId: string | null;
+  onAddTask: (title: string, sectionId: string | null, dueDate: string) => void;
+  onReschedule: (id: string, dueDate: string) => void;
+  onOpenTask: (t: Task) => void;
+}) {
+  const [cursor, setCursor] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const [composing, setComposing] = useState<string | null>(null);
+
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7; // segunda = 0
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - offset);
+
+  const days = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+
+  const todayISO = calendarIso(new Date());
+  const byDay = new Map<string, Task[]>();
+  for (const t of tasks) {
+    if (!t.due_date) continue;
+    const list = byDay.get(t.due_date) ?? [];
+    list.push(t);
+    byDay.set(t.due_date, list);
+  }
+
+  return (
+    <div className="card-surface overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <button
+          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+          aria-label="Mês anterior"
+          className="btn btn-ghost p-1.5"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <span className="text-sm font-semibold capitalize">
+          {cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+        </span>
+        <button
+          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+          aria-label="Próximo mês"
+          className="btn btn-ghost p-1.5"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+        <button
+          onClick={() => {
+            const d = new Date();
+            setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
+          }}
+          className="btn btn-outline ml-2 px-2.5 py-1 text-xs"
+        >
+          Hoje
+        </button>
+        <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
+          Arraste uma tarefa para outro dia para mudar o prazo.
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 border-b border-border bg-secondary/40">
+        {CALENDAR_WEEKDAYS.map((d) => (
+          <span key={d} className="px-2 py-1.5 text-center text-[11px] font-medium text-muted-foreground uppercase">
+            {d}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7">
+        {days.map((day) => {
+          const iso = calendarIso(day);
+          const list = byDay.get(iso) ?? [];
+          const outside = day.getMonth() !== cursor.getMonth();
+          return (
+            <div
+              key={iso}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData("text/task-id");
+                if (id) onReschedule(id, iso);
+              }}
+              className={cn(
+                "group min-h-28 border-r border-b border-border p-1.5 last:border-r-0",
+                outside && "bg-secondary/30",
+              )}
+            >
+              <div className="flex items-center gap-1">
+                <span
+                  className={cn(
+                    "grid size-5 place-items-center rounded-full text-[11px] tabular-nums",
+                    iso === todayISO ? "bg-brand font-semibold text-brand-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {day.getDate()}
+                </span>
+                <button
+                  onClick={() => setComposing(iso)}
+                  aria-label="Adicionar tarefa neste dia"
+                  className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
+
+              <div className="mt-1 space-y-1">
+                {list.map((t) => {
+                  const assignee = members.find((m) => m.id === t.assignee_id);
+                  return (
+                    <button
+                      key={t.id}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData("text/task-id", t.id)}
+                      onClick={() => onOpenTask(t)}
+                      title={t.title}
+                      className={cn(
+                        "flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-secondary",
+                        t.status === "concluido"
+                          ? "border-success/30 bg-success/10 text-muted-foreground line-through"
+                          : isLate(t)
+                            ? "border-destructive/30 bg-destructive/5"
+                            : "border-border bg-card",
+                      )}
+                    >
+                      {t.is_milestone && <Flag className="size-3 shrink-0 text-warning" />}
+                      <span className="truncate">{t.title}</span>
+                      {assignee && (
+                        <Avatar
+                          name={assignee.name}
+                          color={assignee.avatar_color}
+                          src={assignee.avatar_url}
+                          size="xs"
+                          className="ml-auto"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+
+                {composing === iso && (
+                  <input
+                    autoFocus
+                    placeholder="Nova tarefa"
+                    maxLength={140}
+                    onKeyDown={(e) => {
+                      const value = (e.target as HTMLInputElement).value.trim();
+                      if (e.key === "Enter" && value.length >= 2) {
+                        onAddTask(value, firstSectionId, iso);
+                        setComposing(null);
+                      }
+                      if (e.key === "Escape") setComposing(null);
+                    }}
+                    onBlur={() => setComposing(null)}
+                    className="w-full rounded border border-ring bg-background px-1.5 py-1 text-[11px] focus:outline-none"
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
