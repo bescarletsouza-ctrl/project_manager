@@ -30,7 +30,7 @@ const ALLOWED_TAGS = new Set([
   "H1", "H2", "H3", "BLOCKQUOTE", "CODE", "PRE", "A", "IMG",
 ]);
 
-/** Únicas classes que sobrevivem à sanitização — só as do card de preview de link (ver buildLinkNode). */
+/** Únicas classes que sobrevivem à sanitização — as do card de preview de link (ver buildLinkNode) e a de @menção. */
 const ALLOWED_CLASSES = new Set([
   "link-preview-card",
   "link-preview-inline",
@@ -40,6 +40,7 @@ const ALLOWED_CLASSES = new Set([
   "lp-title",
   "lp-desc",
   "lp-site",
+  "mention",
 ]);
 
 /** Atributos data-lp-* preservados num link com preview — guardam os metadados mesmo quando o modo exibido é "inline"/"url", pra poder voltar pra "Pré-visualização" depois sem buscar de novo. */
@@ -120,7 +121,9 @@ const RICH_CONTENT_CLASSES =
   "[&_.lp-body]:min-w-0 [&_.lp-body]:flex-1 " +
   "[&_.lp-title]:truncate [&_.lp-title]:text-sm [&_.lp-title]:font-medium " +
   "[&_.lp-desc]:line-clamp-2 [&_.lp-desc]:text-xs [&_.lp-desc]:text-muted-foreground " +
-  "[&_.lp-site]:text-[11px] [&_.lp-site]:text-muted-foreground [&_.lp-site]:uppercase";
+  "[&_.lp-site]:text-[11px] [&_.lp-site]:text-muted-foreground [&_.lp-site]:uppercase " +
+  // @menção — mesmo destaque usado no comentário (font-medium text-brand).
+  "[&_.mention]:font-medium [&_.mention]:text-brand";
 
 function ToolbarButton({
   icon: Icon,
@@ -182,6 +185,7 @@ export function RichTextEditor({
   members?: { id: string; name: string }[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const linkMenuRef = useRef<HTMLDivElement>(null);
   const [pendingPaste, setPendingPaste] = useState<{ html: string; text: string } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
@@ -196,7 +200,13 @@ export function RichTextEditor({
 
   useEffect(() => {
     if (!linkMenu) return;
-    const close = () => setLinkMenu(null);
+    // Confere se o clique foi DENTRO do menu (via .contains) em vez de contar só com
+    // stopPropagation — clicar num botão do menu fechava o menu antes do onClick dele
+    // rodar (o elemento saía do DOM entre o mousedown e o click, que aí nunca disparava).
+    const close = (e: MouseEvent) => {
+      if (linkMenuRef.current?.contains(e.target as Node)) return;
+      setLinkMenu(null);
+    };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [linkMenu]);
@@ -243,23 +253,38 @@ export function RichTextEditor({
     setMentionRect({ x: rect.left, y: rect.bottom + 4 });
   };
 
-  /** Troca o "@parcial" digitado pelo nome completo, dentro do mesmo nó de texto. */
+  /**
+   * Troca o "@parcial" digitado por um span destacado (mesma cor do comentário),
+   * dividindo o nó de texto em: antes / span da menção / espaço / depois.
+   */
   const pickMention = (member: { id: string; name: string }) => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     const node = range.startContainer;
     if (node.nodeType !== Node.TEXT_NODE) return;
+    const parent = node.parentNode;
+    if (!parent) return;
     const text = node.textContent ?? "";
     const uptoCursor = text.slice(0, range.startOffset);
     const atIndex = uptoCursor.lastIndexOf("@");
     if (atIndex === -1) return;
-    const inserted = `@${member.name} `;
-    node.textContent = text.slice(0, atIndex) + inserted + text.slice(range.startOffset);
-    const pos = atIndex + inserted.length;
+
+    const mentionSpan = document.createElement("span");
+    mentionSpan.className = "mention";
+    mentionSpan.textContent = `@${member.name}`;
+    const spaceNode = document.createTextNode(" ");
+    const afterNode = document.createTextNode(text.slice(range.startOffset));
+    const beforeNode = document.createTextNode(text.slice(0, atIndex));
+
+    parent.replaceChild(afterNode, node);
+    parent.insertBefore(spaceNode, afterNode);
+    parent.insertBefore(mentionSpan, spaceNode);
+    parent.insertBefore(beforeNode, mentionSpan);
+
     const newRange = document.createRange();
-    newRange.setStart(node, pos);
-    newRange.setEnd(node, pos);
+    newRange.setStartAfter(spaceNode);
+    newRange.setEndAfter(spaceNode);
     sel.removeAllRanges();
     sel.addRange(newRange);
     setMentionQuery(null);
@@ -560,7 +585,7 @@ export function RichTextEditor({
 
       {linkMenu && (
         <div
-          onMouseDown={(e) => e.stopPropagation()}
+          ref={linkMenuRef}
           style={{ left: linkMenu.x, top: linkMenu.y }}
           className="fixed z-50 w-52 rounded-md border border-border bg-popover p-1 text-xs shadow-[var(--shadow-raised)]"
         >
@@ -569,6 +594,7 @@ export function RichTextEditor({
             <button
               key={mode}
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => switchLinkMode(linkMenu.el, mode)}
               className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left hover:bg-secondary"
             >
