@@ -78,6 +78,11 @@ function ReportsPage() {
   const tasks = useMemo(
     () =>
       allTasks.filter((t) => {
+        // Tarefa aberta (inclui atrasada/bloqueada) sempre conta, não importa quando foi
+        // criada — são pendências de AGORA, filtrar por período de criação as esconderia
+        // do relatório inteiro (não só da coluna "Atrasadas"). O filtro de data só decide
+        // que tarefas JÁ CONCLUÍDAS/CANCELADAS entram na foto do período escolhido.
+        if (isOpen(t)) return true;
         const d = t.created_at.slice(0, 10);
         if (dateFrom && d < dateFrom) return false;
         if (dateTo && d > dateTo) return false;
