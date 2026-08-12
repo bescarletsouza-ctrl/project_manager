@@ -144,6 +144,9 @@ function Dashboard() {
   const late = filtered.filter(isLate);
   const blocked = filtered.filter((t) => t.status === "bloqueado");
   const onTime = done.filter((t) => !isLate(t));
+  /** Planejadas x fora do planejamento entre as concluídas do período — base da análise comparativa. */
+  const plannedDone = done.filter((t) => !t.unplanned);
+  const unplannedDone = done.filter((t) => t.unplanned);
 
   const byStatus = STATUS_ORDER.map((s) => ({
     status: s,
@@ -257,6 +260,8 @@ function Dashboard() {
           tone="warning"
         />
       </div>
+
+      <PlannedVsUnplannedPanel plannedDone={plannedDone} unplannedDone={unplannedDone} onSelect={openSelection} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="card-surface p-4 lg:col-span-2">
@@ -533,6 +538,97 @@ function Dashboard() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Comparação lado a lado entre tarefas concluídas planejadas (vieram do fluxo
+ * normal) e fora do planejamento (criadas numa seção "Não planejado") — mede
+ * volume, pontos e os três tempos-chave, pra ver de cara o quanto o que entra
+ * fora do combinado pesa no ritmo de entrega.
+ */
+function PlannedVsUnplannedPanel({
+  plannedDone,
+  unplannedDone,
+  onSelect,
+}: {
+  plannedDone: Task[];
+  unplannedDone: Task[];
+  onSelect: (title: string, tasks: Task[]) => void;
+}) {
+  const total = plannedDone.length + unplannedDone.length;
+  return (
+    <div className="card-surface p-4">
+      <SectionTitle
+        title="Planejado x fora do planejamento"
+        description="Tarefas concluídas no período — clique num lado pra ver as tarefas"
+      />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <PlannedVsUnplannedCol
+          label="Planejadas"
+          tasks={plannedDone}
+          share={total ? pct(plannedDone.length, total) : 0}
+          onClick={() => onSelect("Planejadas", plannedDone)}
+        />
+        <PlannedVsUnplannedCol
+          label="Fora do planejamento"
+          tasks={unplannedDone}
+          share={total ? pct(unplannedDone.length, total) : 0}
+          warn
+          onClick={() => onSelect("Fora do planejamento", unplannedDone)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PlannedVsUnplannedCol({
+  label,
+  tasks,
+  share,
+  warn,
+  onClick,
+}: {
+  label: string;
+  tasks: Task[];
+  share: number;
+  warn?: boolean;
+  onClick: () => void;
+}) {
+  const onTime = tasks.filter((t) => !isLate(t));
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg border p-3 text-left transition-colors hover:bg-secondary/40 ${warn ? "border-warning/40 bg-warning/5" : "border-border"}`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground uppercase">{label}</p>
+        <span className="text-xs font-medium tabular-nums text-muted-foreground">{share}% do total</span>
+      </div>
+      <dl className="mt-2 space-y-1.5 text-sm">
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Concluídas</dt>
+          <dd className="font-medium tabular-nums">{tasks.length}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Pontos</dt>
+          <dd className="font-medium tabular-nums">{tasks.reduce((s, t) => s + t.complexity, 0)}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Lead time</dt>
+          <dd className="font-medium tabular-nums">{formatHours(avg(tasks.map(leadTime)))}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Cycle time</dt>
+          <dd className="font-medium tabular-nums">{formatHours(avg(tasks.map(cycleTime)))}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">No prazo</dt>
+          <dd className="font-medium tabular-nums">{tasks.length ? pct(onTime.length, tasks.length) : 0}%</dd>
+        </div>
+      </dl>
+    </button>
   );
 }
 
