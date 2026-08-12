@@ -60,6 +60,7 @@ import {
   PRIORITY_LABEL,
   STATUS_ORDER,
   isLate,
+  isUnplannedSectionName,
   type Member,
   type Priority,
   type Task,
@@ -349,14 +350,16 @@ function DepartmentDetail() {
    */
   const quickAddTask = useMutation({
     mutationFn: async (input: { title: string; sectionId: string | null; dueDate?: string | null }) => {
+      const targetSectionId = input.sectionId ?? firstSectionId;
       const base: Record<string, unknown> = {
         title: input.title,
         project_id: null,
         department_id: departmentId,
-        section_id: input.sectionId ?? firstSectionId,
+        section_id: targetSectionId,
         status: "a_fazer",
         assignee_id: currentMember?.id ?? null,
         due_date: input.dueDate ?? null,
+        unplanned: isUnplannedSectionName(sections.find((s) => s.id === targetSectionId)?.name ?? ""),
       };
       const { patch, applied, moves } = runAutomations(
         automations,

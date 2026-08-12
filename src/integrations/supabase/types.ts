@@ -785,6 +785,7 @@ export type Database = {
           tags: string[]
           task_type: string
           title: string
+          unplanned: boolean
           updated_at: string
         }
         Insert: {
@@ -814,6 +815,7 @@ export type Database = {
           tags?: string[]
           task_type?: string
           title: string
+          unplanned?: boolean
           updated_at?: string
         }
         Update: {
@@ -843,6 +845,7 @@ export type Database = {
           tags?: string[]
           task_type?: string
           title?: string
+          unplanned?: boolean
           updated_at?: string
         }
         Relationships: [

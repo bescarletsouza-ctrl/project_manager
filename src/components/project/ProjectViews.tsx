@@ -62,6 +62,7 @@ import {
   PRIORITY_LABEL,
   deadlineStatus,
   isLate,
+  isUnplannedSectionName,
   type Department,
   type Member,
   type Priority,
@@ -221,6 +222,7 @@ export function useSectionMutations(
         assignee_id: project.default_assignee_id ?? null,
         due_date:
           input.dueDate ?? (project.default_due_days ? addDays(project.default_due_days) : null),
+        unplanned: isUnplannedSectionName(allSections.find((s) => s.id === input.sectionId)?.name ?? ""),
         ...(input.position !== undefined ? { position: input.position } : {}),
       };
       const { patch, applied, moves } = runAutomations(

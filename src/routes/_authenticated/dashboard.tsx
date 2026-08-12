@@ -156,6 +156,7 @@ function Dashboard() {
     name: d.name,
     abertas: filtered.filter((t) => t.department_id === d.id && isOpen(t)).length,
     concluidas: filtered.filter((t) => t.department_id === d.id && isDone(t)).length,
+    naoPlanejadas: filtered.filter((t) => t.department_id === d.id && t.unplanned).length,
   }));
 
   const evolution = buildEvolution(done);
@@ -249,6 +250,12 @@ function Dashboard() {
         <StatCard label="Cumprimento de prazo" value={`${done.length ? pct(onTime.length, done.length) : 0}%`} tone="success" />
         <StatCard label="Tempo médio de conclusão" value={formatHours(avg(done.map(leadTime)))} hint="Lead time" />
         <StatCard label="Tempo médio até iniciar" value={formatHours(avg(filtered.map(timeToStart)))} />
+        <StatCard
+          label="Fora do planejamento"
+          value={`${done.length ? pct(done.filter((t) => t.unplanned).length, done.length) : 0}%`}
+          hint="das concluídas · não entraram pelo planejamento"
+          tone="warning"
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -345,6 +352,22 @@ function Dashboard() {
                     openSelection(
                       `Concluídas — ${row.payload.name}`,
                       filtered.filter((t) => t.department_id === row.payload!.id && isDone(t)),
+                    );
+                  }
+                }}
+              />
+              <RBar
+                dataKey="naoPlanejadas"
+                name="Fora do planejamento"
+                fill="var(--chart-4)"
+                radius={[4, 4, 0, 0]}
+                className="cursor-pointer"
+                onClick={(d: unknown) => {
+                  const row = d as { payload?: { id: string; name: string } };
+                  if (row.payload) {
+                    openSelection(
+                      `Fora do planejamento — ${row.payload.name}`,
+                      filtered.filter((t) => t.department_id === row.payload!.id && t.unplanned),
                     );
                   }
                 }}

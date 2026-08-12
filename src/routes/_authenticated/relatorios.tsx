@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Bar as RBar,
   BarChart,
@@ -17,7 +16,7 @@ import { SectionTitle, StatCard } from "@/components/ui-bits";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
 import { requireRole } from "@/lib/access";
 import { useWorkspaceData, nameById } from "@/lib/useData";
-import { sectionsQuery } from "@/lib/asana";
+import { cn } from "@/lib/utils";
 import {
   STATUS_META,
   STATUS_ORDER,
@@ -28,7 +27,6 @@ import {
   isDone,
   isLate,
   isOpen,
-  isUnplannedSectionName,
   leadTime,
   pct,
   personMetrics,
@@ -68,8 +66,6 @@ function daysAgoIso(days: number) {
 
 function ReportsPage() {
   const { tasks: allTasks, members, departments, projects, clients, events, isLoading } = useWorkspaceData();
-  const sectionsQ = useQuery(sectionsQuery);
-  const sections = sectionsQ.data ?? [];
   const [group, setGroup] = useState<Group>("colaborador");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -110,6 +106,7 @@ function ReportsPage() {
       const list = tasks.filter((t) => t[d.key] === d.id);
       const done = list.filter(isDone);
       const onTime = done.filter((t) => !isLate(t));
+      const unplannedTasks = list.filter((t) => t.unplanned);
       return {
         id: d.id,
         name: d.name,
@@ -118,11 +115,14 @@ function ReportsPage() {
         pontos: done.reduce((s, t) => s + t.complexity, 0),
         atrasadas: list.filter(isLate).length,
         bloqueadas: list.filter((t) => t.status === "bloqueado").length,
+        naoPlanejadas: unplannedTasks.length,
+        naoPlanejadasPct: list.length ? pct(unplannedTasks.length, list.length) : 0,
         prazo: done.length ? pct(onTime.length, done.length) : 0,
         leadTime: avg(done.map(leadTime)),
         cycleTime: avg(done.map(cycleTime)),
         inicio: avg(list.map(timeToStart)),
         retrabalho: list.length ? pct(list.filter((t) => t.reopen_count > 0).length, list.length) : 0,
+        unplannedTasks,
       };
     });
   }, [dims, tasks]);
@@ -133,30 +133,32 @@ function ReportsPage() {
     openSelection(`Tarefas — ${name}`, tasks.filter((t) => t[dim.key] === dimId));
   };
 
+  const openUnplannedRow = (dimId: string, name: string) => {
+    const row = rows.find((r) => r.id === dimId);
+    if (row) openSelection(`Fora do planejamento — ${name}`, row.unplannedTasks);
+  };
+
   const projectCharts = useMemo(() => {
     if (group !== "projeto") return [];
     return projects.map((p) => {
       const list = tasks.filter((t) => t.project_id === p.id);
       const done = list.filter(isDone);
-      const unplannedSectionIds = new Set(
-        sections.filter((s) => s.project_id === p.id && isUnplannedSectionName(s.name)).map((s) => s.id),
-      );
-      const unplannedTasks = list.filter((t) => t.section_id && unplannedSectionIds.has(t.section_id));
       return {
         id: p.id,
         name: p.name,
         volume: list.length,
         cycleTime: avg(done.map(cycleTime)) ?? 0,
-        naoPlanejadas: unplannedTasks.length,
         tasks: list,
-        unplannedTasks,
       };
     });
-  }, [group, projects, tasks, sections]);
+  }, [group, projects, tasks]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
   const done = tasks.filter(isDone);
+  /** Planejadas x fora do planejamento entre as concluídas — mede o impacto de verdade (o que já foi entregue), não só o que está aberto/na fila. */
+  const unplannedDone = done.filter((t) => t.unplanned);
+  const plannedDone = done.filter((t) => !t.unplanned);
   const statusTimes = STATUS_ORDER.map((s) => {
     const totals = tasks.map((t) => timeInStatus(events, t)[s]).filter(Boolean) as number[];
     return {
@@ -169,7 +171,7 @@ function ReportsPage() {
   const stalled = tasks.filter((t) => isOpen(t) && daysWithoutMovement(events, t) > 5).length;
 
   function exportCsv() {
-    const csvRows = rows.map(({ id: _id, ...rest }) => rest);
+    const csvRows = rows.map(({ id: _id, unplannedTasks: _u, ...rest }) => rest);
     const header = Object.keys(csvRows[0] ?? { name: "" }).join(";");
     const body = csvRows
       .map((r) =>
@@ -254,6 +256,12 @@ function ReportsPage() {
         <StatCard label="SLA não cumprido" value={`${done.length ? pct(done.filter(isLate).length, done.length) : 0}%`} tone="danger" />
         <StatCard label="Retrabalho" value={`${pct(tasks.filter((t) => t.reopen_count > 0).length, tasks.length || 1)}%`} tone="warning" />
         <StatCard label="Sem movimentação (+5d)" value={stalled} tone={stalled ? "warning" : "success"} />
+        <StatCard
+          label="Fora do planejamento"
+          value={`${done.length ? pct(unplannedDone.length, done.length) : 0}%`}
+          hint="das concluídas · criadas fora de uma seção de planejamento"
+          tone="warning"
+        />
       </div>
 
       <div className="card-surface overflow-x-auto">
@@ -269,6 +277,7 @@ function ReportsPage() {
               <th className="px-4 py-2 font-medium">Pontos</th>
               <th className="px-4 py-2 font-medium">Atrasadas</th>
               <th className="px-4 py-2 font-medium">Bloqueadas</th>
+              <th className="px-4 py-2 font-medium">Fora do plan.</th>
               <th className="px-4 py-2 font-medium">Prazo</th>
               <th className="px-4 py-2 font-medium">Lead time</th>
               <th className="px-4 py-2 font-medium">Cycle time</th>
@@ -289,6 +298,17 @@ function ReportsPage() {
                 <td className="px-4 py-2 tabular-nums">{r.pontos}</td>
                 <td className="px-4 py-2 tabular-nums">{r.atrasadas}</td>
                 <td className="px-4 py-2 tabular-nums">{r.bloqueadas}</td>
+                <td
+                  className={cn("px-4 py-2 tabular-nums", r.naoPlanejadas > 0 && "text-warning")}
+                  onClick={(e) => {
+                    if (!r.naoPlanejadas) return;
+                    e.stopPropagation();
+                    openUnplannedRow(r.id, r.name);
+                  }}
+                  title={r.naoPlanejadas ? "Ver tarefas fora do planejamento" : undefined}
+                >
+                  {r.naoPlanejadas} {r.naoPlanejadas > 0 && <span className="text-muted-foreground">({r.naoPlanejadasPct}%)</span>}
+                </td>
                 <td className="px-4 py-2 tabular-nums">{r.prazo}%</td>
                 <td className="px-4 py-2 tabular-nums">{formatHours(r.leadTime)}</td>
                 <td className="px-4 py-2 tabular-nums">{formatHours(r.cycleTime)}</td>
@@ -299,6 +319,8 @@ function ReportsPage() {
           </tbody>
         </table>
       </div>
+
+      <UnplannedPanel group={group} rows={rows} plannedDone={plannedDone} unplannedDone={unplannedDone} onSelectDim={openUnplannedRow} />
 
       {group === "projeto" && <ProjectChartsPanel data={projectCharts} onSelect={openSelection} />}
 
@@ -364,12 +386,10 @@ type ProjectChartRow = {
   name: string;
   volume: number;
   cycleTime: number;
-  naoPlanejadas: number;
   tasks: Task[];
-  unplannedTasks: Task[];
 };
 
-/** Volume, cycle time médio e tarefas fora do planejamento (seção "Não planejado"), por projeto. */
+/** Volume e cycle time médio por projeto. */
 function ProjectChartsPanel({
   data,
   onSelect,
@@ -382,13 +402,9 @@ function ProjectChartsPanel({
     const row = d as { payload?: ProjectChartRow };
     if (row.payload) onSelect(`Tarefas — ${row.payload.name}`, row.payload.tasks);
   };
-  const openUnplanned = (d: unknown) => {
-    const row = d as { payload?: ProjectChartRow };
-    if (row.payload) onSelect(`Fora do planejamento — ${row.payload.name}`, row.payload.unplannedTasks);
-  };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-2">
       <div className="card-surface p-4">
         <SectionTitle title="Volume por projeto" description="Quantas tarefas cada projeto tem" />
         <div className="mt-4 h-64">
@@ -435,34 +451,110 @@ function ProjectChartsPanel({
           </ResponsiveContainer>
         </div>
       </div>
+    </div>
+  );
+}
 
+type UnplannedRow = { id: string; name: string; naoPlanejadas: number };
+
+/**
+ * Painel de "fora do planejamento" — troca junto com o seletor de agrupamento
+ * da página (colaborador/departamento/projeto/cliente), então responde direto
+ * a "quem é mais impactado" sem precisar de gráfico dedicado por dimensão.
+ */
+function UnplannedPanel({
+  group,
+  rows,
+  plannedDone,
+  unplannedDone,
+  onSelectDim,
+}: {
+  group: Group;
+  rows: UnplannedRow[];
+  plannedDone: Task[];
+  unplannedDone: Task[];
+  onSelectDim: (id: string, name: string) => void;
+}) {
+  const chartData = rows.filter((r) => r.naoPlanejadas > 0).sort((a, b) => b.naoPlanejadas - a.naoPlanejadas);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
       <div className="card-surface p-4">
-        <SectionTitle title="Fora do planejamento por projeto" description='Tarefas na seção "Não planejado"' />
+        <SectionTitle
+          title={`Fora do planejamento por ${group}`}
+          description='Tarefas criadas numa seção "Não planejado" — clique numa barra pra ver quais'
+        />
         <div className="mt-4 h-64">
-          {data.every((d) => d.naoPlanejadas === 0) ? (
+          {chartData.length === 0 ? (
             <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Nenhuma seção "Não planejado" com tarefas.
+              Nenhuma tarefa fora do planejamento no período.
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} layout="vertical" margin={{ left: 60 }}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 60 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis type="number" fontSize={11} allowDecimals={false} stroke="var(--muted-foreground)" />
                 <YAxis type="category" dataKey="name" fontSize={11} width={100} stroke="var(--muted-foreground)" />
                 <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }} />
                 <RBar
                   dataKey="naoPlanejadas"
-                  name="Não planejadas"
+                  name="Fora do planejamento"
                   fill="var(--chart-4)"
                   radius={[0, 4, 4, 0]}
                   className="cursor-pointer"
-                  onClick={openUnplanned}
+                  onClick={(d: unknown) => {
+                    const row = d as { payload?: UnplannedRow };
+                    if (row.payload) onSelectDim(row.payload.id, row.payload.name);
+                  }}
                 />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
       </div>
+
+      <div className="card-surface p-4">
+        <SectionTitle
+          title="Impacto na produtividade"
+          description="Concluídas planejadas x fora do planejamento, no período"
+        />
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <ImpactCol label="Planejadas" tasks={plannedDone} />
+          <ImpactCol label="Fora do planejamento" tasks={unplannedDone} warn />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Coluna de métricas (concluídas, pontos, lead/cycle time, % no prazo) pra um recorte de tarefas concluídas. */
+function ImpactCol({ label, tasks, warn }: { label: string; tasks: Task[]; warn?: boolean }) {
+  const onTime = tasks.filter((t) => !isLate(t));
+  return (
+    <div className={cn("rounded-lg border p-3 text-sm", warn ? "border-warning/40 bg-warning/5" : "border-border")}>
+      <p className="text-xs font-medium text-muted-foreground uppercase">{label}</p>
+      <dl className="mt-2 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Concluídas</dt>
+          <dd className="font-medium tabular-nums">{tasks.length}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Pontos</dt>
+          <dd className="font-medium tabular-nums">{tasks.reduce((s, t) => s + t.complexity, 0)}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Lead time</dt>
+          <dd className="font-medium tabular-nums">{formatHours(avg(tasks.map(leadTime)))}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Cycle time</dt>
+          <dd className="font-medium tabular-nums">{formatHours(avg(tasks.map(cycleTime)))}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">No prazo</dt>
+          <dd className="font-medium tabular-nums">{tasks.length ? pct(onTime.length, tasks.length) : 0}%</dd>
+        </div>
+      </dl>
     </div>
   );
 }

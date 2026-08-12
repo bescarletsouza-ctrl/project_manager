@@ -113,6 +113,8 @@ export type Task = {
   start_date: string | null;
   position: number;
   completed: boolean;
+  /** true quando a tarefa foi CRIADA numa seção "Não planejado" — não muda se ela for movida depois. Ver isUnplannedSectionName. */
+  unplanned: boolean;
 };
 
 export type Member = {

@@ -21,7 +21,13 @@ import {
 } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { COLOR_KEYS, dotClass } from "@/lib/colors";
-import { PRIORITIES, PRIORITY_LABEL, PROJECT_STATUS, PROJECT_STATUS_LABEL } from "@/lib/domain";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  PROJECT_STATUS,
+  PROJECT_STATUS_LABEL,
+  isUnplannedSectionName,
+} from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
 /** Seções criadas junto com um projeto novo, como no Asana. */
@@ -78,6 +84,7 @@ export function NewTaskDialog({
           due_date: form.due_date || null,
           priority: form.priority,
           status: "a_fazer",
+          unplanned: isUnplannedSectionName(containerSections[0]?.name ?? ""),
         },
         form.project_id ? [form.project_id] : [],
       );
