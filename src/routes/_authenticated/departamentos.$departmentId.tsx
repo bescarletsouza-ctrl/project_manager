@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   CalendarDays,
   Check,
   ChevronDown,
@@ -54,7 +55,15 @@ import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/li
 import { departmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
-import { PRIORITIES, PRIORITY_LABEL, isLate, type Member, type Priority, type Task } from "@/lib/domain";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  STATUS_ORDER,
+  isLate,
+  type Member,
+  type Priority,
+  type Task,
+} from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import {
@@ -1572,35 +1581,116 @@ function CalendarPanel({
 
 const LIST_HEADER_LABEL_CLS = "truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
 
+/** Chaves ordenáveis da Lista do departamento — mesmo padrão da página Tarefas e da Lista do projeto. */
+type DeptSortKey = "title" | "projeto" | "prioridade" | "status" | "sprint" | "etiquetas" | "prazo" | "responsavel";
+type DeptSortState = { key: DeptSortKey; dir: "asc" | "desc" } | null;
+
+function deptSortValue(
+  task: Task,
+  key: DeptSortKey,
+  members: Member[],
+  projects: { id: string; name: string; color: string }[],
+): string {
+  switch (key) {
+    case "title":
+      return task.title.toLowerCase();
+    case "projeto":
+      return (projects.find((p) => p.id === task.project_id)?.name ?? "zzz").toLowerCase();
+    case "prioridade":
+      return String(PRIORITIES.indexOf(task.priority)).padStart(2, "0");
+    case "status":
+      return String(STATUS_ORDER.indexOf(task.status)).padStart(2, "0");
+    case "sprint":
+      return (task.sprint ?? "").toLowerCase();
+    case "etiquetas":
+      return (task.tags ?? []).join(", ").toLowerCase();
+    case "prazo":
+      return task.due_date ?? "9999-12-31";
+    case "responsavel":
+      return (members.find((m) => m.id === task.assignee_id)?.name ?? "zzz").toLowerCase();
+    default:
+      return "";
+  }
+}
+
 /**
  * Cabeçalho identificando as colunas da Lista, com a mesma largura (e alça de
  * redimensionar) que as células abaixo — sem isso as colunas desalinham
  * porque cada campo (pill de projeto, badge de status…) tem largura própria.
+ * Cada rótulo (exceto o selo fixo "Prazo") também ordena a lista ao clicar —
+ * mesmo padrão da página Tarefas.
  */
-function ListColumnHeader({ columnPrefs, cols }: { columnPrefs: ColumnPrefs; cols: ColumnWidths }) {
-  const column = (id: string, label: string) => {
+function ListColumnHeader({
+  columnPrefs,
+  cols,
+  sort,
+  onSort,
+}: {
+  columnPrefs: ColumnPrefs;
+  cols: ColumnWidths;
+  sort: DeptSortState;
+  onSort: (key: DeptSortKey) => void;
+}) {
+  const arrow = (key: DeptSortKey) =>
+    sort?.key === key ? (
+      sort.dir === "asc" ? (
+        <ArrowUp className="size-3" />
+      ) : (
+        <ArrowDown className="size-3" />
+      )
+    ) : (
+      <ArrowUpDown className="size-3 opacity-0 group-hover:opacity-50" />
+    );
+
+  const column = (id: string, label: string, sortKey?: DeptSortKey) => {
     const width = cols.widthOf(id);
     return (
       <div key={id} style={{ width }} className="relative shrink-0 self-stretch">
-        <span className={LIST_HEADER_LABEL_CLS}>{label}</span>
+        {sortKey ? (
+          <button
+            type="button"
+            onClick={() => onSort(sortKey)}
+            className={cn(
+              "group flex min-w-0 items-center gap-1",
+              LIST_HEADER_LABEL_CLS,
+              sort?.key === sortKey ? "text-foreground" : "hover:text-foreground",
+            )}
+          >
+            <span className="truncate">{label}</span>
+            {arrow(sortKey)}
+          </button>
+        ) : (
+          <span className={LIST_HEADER_LABEL_CLS}>{label}</span>
+        )}
         <ResizeHandle label={label} onReset={() => cols.resetWidth(id)} onResize={(deltaX) => cols.setWidth(id, width + deltaX)} />
       </div>
     );
   };
 
   return (
-    <div className="flex items-center gap-2 bg-muted/40 px-2 py-2">
+    <div className="group flex items-center gap-2 bg-muted/40 px-2 py-2">
       <span className="w-4 shrink-0" />
-      <span className={cn(LIST_HEADER_LABEL_CLS, "min-w-0 flex-1")}>Tarefa</span>
-      {columnPrefs.projeto && column("projeto", COLUMN_LABEL.projeto)}
-      {columnPrefs.prioridade && column("prioridade", COLUMN_LABEL.prioridade)}
-      {columnPrefs.status && column("status", COLUMN_LABEL.status)}
-      {columnPrefs.sprint && column("sprint", COLUMN_LABEL.sprint)}
-      {columnPrefs.etiquetas && column("etiquetas", COLUMN_LABEL.etiquetas)}
-      {/* Selo de prazo (No prazo/Vencendo/Atrasado) — sempre aparece na linha, com ou sem a coluna "prazo" ligada. */}
+      <button
+        type="button"
+        onClick={() => onSort("title")}
+        className={cn(
+          "group flex min-w-0 flex-1 items-center gap-1",
+          LIST_HEADER_LABEL_CLS,
+          sort?.key === "title" ? "text-foreground" : "hover:text-foreground",
+        )}
+      >
+        Tarefa
+        {arrow("title")}
+      </button>
+      {columnPrefs.projeto && column("projeto", COLUMN_LABEL.projeto, "projeto")}
+      {columnPrefs.prioridade && column("prioridade", COLUMN_LABEL.prioridade, "prioridade")}
+      {columnPrefs.status && column("status", COLUMN_LABEL.status, "status")}
+      {columnPrefs.sprint && column("sprint", COLUMN_LABEL.sprint, "sprint")}
+      {columnPrefs.etiquetas && column("etiquetas", COLUMN_LABEL.etiquetas, "etiquetas")}
+      {/* Selo de prazo (No prazo/Vencendo/Atrasado) — sempre aparece na linha, com ou sem a coluna "prazo" ligada. Não ordena: "prazo" (data) já cobre isso. */}
       {column("deadline", "Prazo")}
-      {columnPrefs.prazo && column("prazo", COLUMN_LABEL.prazo)}
-      {columnPrefs.responsavel && column("responsavel", COLUMN_LABEL.responsavel)}
+      {columnPrefs.prazo && column("prazo", COLUMN_LABEL.prazo, "prazo")}
+      {columnPrefs.responsavel && column("responsavel", COLUMN_LABEL.responsavel, "responsavel")}
     </div>
   );
 }
@@ -1682,10 +1772,13 @@ function ListPanel({
   currentMemberId: string | null;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [sort, setSort] = useState<DeptSortState>(null);
+  const toggleSort = (key: DeptSortKey) =>
+    setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
 
   return (
     <div className="card-surface divide-y divide-border">
-      <ListColumnHeader columnPrefs={columnPrefs} cols={cols} />
+      <ListColumnHeader columnPrefs={columnPrefs} cols={cols} sort={sort} onSort={toggleSort} />
       {boardSections.map((section) => {
         const isVirtual = !section.id;
         // Mesma regra da Board view: órfãs acompanham a 1ª seção real. O id
@@ -1704,7 +1797,13 @@ function ListPanel({
               : deptTasks.filter((t) => t.section_id === section.id)
         )
           .slice()
-          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+          .sort((a, b) =>
+            sort
+              ? deptSortValue(a, sort.key, members, projects).localeCompare(
+                  deptSortValue(b, sort.key, members, projects),
+                ) * (sort.dir === "asc" ? 1 : -1)
+              : a.created_at.localeCompare(b.created_at),
+          );
         const isCollapsed = collapsed[section.id] ?? false;
 
         return (

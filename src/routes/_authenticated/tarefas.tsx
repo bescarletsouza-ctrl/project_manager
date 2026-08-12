@@ -7,7 +7,7 @@ import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bit
 import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
-import { DeadlinePill } from "@/components/project/ProjectViews";
+import { DeadlinePill, useSectionSortDir } from "@/components/project/ProjectViews";
 import { RichTextView } from "@/components/RichTextEditor";
 import { notifyAssignment } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
@@ -144,6 +144,8 @@ function TasksPage() {
   const [sort, setSort] = useState<SortState>(null);
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
+  /** Ordenação por prazo de cada etapa do Quadro — mesmo mecanismo (e mesma seta) do Quadro de departamento/projeto. */
+  const { dirOf: colSortDirOf, toggle: toggleColSort } = useSectionSortDir("tarefas-board");
 
   const move = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updateTask(id, { status }),
@@ -251,7 +253,16 @@ function TasksPage() {
       ) : view === "kanban" ? (
         <div className="flex items-start gap-3 overflow-x-auto pb-4">
           {STATUS_ORDER.map((status) => {
-            const column = filtered.filter((t) => t.status === status);
+            const dir = colSortDirOf(status);
+            // Sem prazo cai por último em qualquer direção — mesma convenção do Quadro de departamento/projeto.
+            const column = filtered
+              .filter((t) => t.status === status)
+              .slice()
+              .sort(
+                dir === "asc"
+                  ? (a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
+                  : (a, b) => (b.due_date ?? "0000-00-00").localeCompare(a.due_date ?? "0000-00-00"),
+              );
             return (
               <div
                 key={status}
@@ -264,7 +275,18 @@ function TasksPage() {
               >
                 <div className="flex items-center justify-between px-1 pb-2">
                   <StatusBadge status={status} />
-                  <span className="text-xs text-muted-foreground">{column.length}</span>
+                  <div className="flex items-center gap-0.5">
+                    <span className="text-xs text-muted-foreground">{column.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleColSort(status)}
+                      aria-label={dir === "asc" ? "Ordenar por prazo mais distante primeiro" : "Ordenar por prazo mais próximo primeiro"}
+                      title={dir === "asc" ? "Vence mais cedo primeiro — clique para inverter" : "Vence mais tarde primeiro — clique para inverter"}
+                      className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    >
+                      {dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />}
+                    </button>
+                  </div>
                 </div>
                 <div className="max-h-[65vh] space-y-1.5 overflow-y-auto">
                   {column.map((t) => (
