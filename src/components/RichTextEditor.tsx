@@ -169,6 +169,7 @@ export function RichTextEditor({
   onImagePaste,
   onLinkPreview,
   members,
+  onKeyDown,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -183,6 +184,8 @@ export function RichTextEditor({
   onLinkPreview?: (url: string) => Promise<LinkPreviewData | null>;
   /** Lista pra autocompletar @menção — sem isso, digitar @ não sugere ninguém. */
   members?: { id: string; name: string }[];
+  /** Roda depois da lógica interna (menção, apagar imagem/card) — pra atalhos do chamador, tipo Ctrl+Enter enviar. */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const linkMenuRef = useRef<HTMLDivElement>(null);
@@ -415,6 +418,44 @@ export function RichTextEditor({
     setLinkMenu({ el: target, x: rect.left, y: rect.bottom + 4 });
   };
 
+  /**
+   * Backspace/Delete em imagem, card de link ou @menção: o navegador nem
+   * sempre apaga essas estruturas de uma vez só (às vezes trava, às vezes
+   * entra "dentro" do card) — aqui, se o cursor está encostado numa dessas,
+   * apaga o nó inteiro de uma vez em vez de deixar o comportamento padrão.
+   */
+  const getAdjacentAtomicNode = (range: Range, direction: "before" | "after"): HTMLElement | null => {
+    const { startContainer, startOffset } = range;
+    const isAtomic = (n: Node | null): n is HTMLElement =>
+      n instanceof HTMLElement && (n.tagName === "IMG" || n.matches('a[data-lp="1"], span.mention'));
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      const len = startContainer.textContent?.length ?? 0;
+      if (direction === "before" && startOffset !== 0) return null;
+      if (direction === "after" && startOffset !== len) return null;
+      const sibling = direction === "before" ? startContainer.previousSibling : startContainer.nextSibling;
+      return isAtomic(sibling) ? sibling : null;
+    }
+    if (startContainer.nodeType === Node.ELEMENT_NODE) {
+      const idx = direction === "before" ? startOffset - 1 : startOffset;
+      const node = startContainer.childNodes[idx] ?? null;
+      return isAtomic(node) ? node : null;
+    }
+    return null;
+  };
+
+  const handleDeleteKey = (e: React.KeyboardEvent<HTMLDivElement>): boolean => {
+    if (e.key !== "Backspace" && e.key !== "Delete") return false;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false;
+    const atomic = getAdjacentAtomicNode(sel.getRangeAt(0), e.key === "Backspace" ? "before" : "after");
+    if (!atomic) return false;
+    e.preventDefault();
+    atomic.remove();
+    emitChange();
+    checkOverflow();
+    return true;
+  };
+
   const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
     const imageItem = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
     if (imageItem) {
@@ -557,20 +598,30 @@ export function RichTextEditor({
           }}
           onClick={handleEditorClick}
           onKeyDown={(e) => {
-            if (mentionQuery === null || mentionMatches.length === 0) return;
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setMentionIndex((i) => (i + 1) % mentionMatches.length);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
-            } else if (e.key === "Enter" || e.key === "Tab") {
-              e.preventDefault();
-              const chosen = mentionMatches[mentionIndex];
-              if (chosen) pickMention(chosen);
-            } else if (e.key === "Escape") {
-              setMentionQuery(null);
+            if (mentionQuery !== null && mentionMatches.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionIndex((i) => (i + 1) % mentionMatches.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                const chosen = mentionMatches[mentionIndex];
+                if (chosen) pickMention(chosen);
+                return;
+              }
+              if (e.key === "Escape") {
+                setMentionQuery(null);
+                return;
+              }
             }
+            if (handleDeleteKey(e)) return;
+            onKeyDown?.(e);
           }}
           style={{ maxHeight: expanded ? undefined : collapsedHeight }}
           className={cn(

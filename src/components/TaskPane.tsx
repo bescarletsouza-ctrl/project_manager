@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -18,7 +18,7 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
 import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
-import { RichTextEditor } from "@/components/RichTextEditor";
+import { RichTextEditor, RichTextView } from "@/components/RichTextEditor";
 import { fetchLinkPreview } from "@/lib/linkPreview";
 import {
   createTask,
@@ -123,9 +123,6 @@ export function TaskPane({
   const [subtitle, setSubtitle] = useState("");
   const [comment, setComment] = useState("");
   const [depTarget, setDepTarget] = useState("");
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const commentRef = useRef<HTMLTextAreaElement>(null);
 
   // ao trocar de tarefa dentro do painel, recarrega os campos de texto
   useEffect(() => {
@@ -133,43 +130,7 @@ export function TaskPane({
     setDescription(task.description ?? "");
     setSubtitle("");
     setComment("");
-    setMentionQuery(null);
   }, [task.id, task.title, task.description]);
-
-  const mentionMatches = mentionQuery === null
-    ? []
-    : members
-        .filter((m) => m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
-        .slice(0, 6);
-
-  function onCommentChange(value: string, caret: number) {
-    setComment(value);
-    const uptoCursor = value.slice(0, caret);
-    const match = uptoCursor.match(/(?:^|\s)@([\p{L}\d._-]{0,30})$/u);
-    if (match) {
-      setMentionQuery(match[1]);
-      setMentionIndex(0);
-    } else {
-      setMentionQuery(null);
-    }
-  }
-
-  function pickMention(member: Member) {
-    const caret = commentRef.current?.selectionStart ?? comment.length;
-    const uptoCursor = comment.slice(0, caret);
-    const atIndex = uptoCursor.lastIndexOf("@");
-    if (atIndex === -1) return;
-    const before = comment.slice(0, atIndex);
-    const after = comment.slice(caret);
-    const inserted = `@${member.name} `;
-    setComment(before + inserted + after);
-    setMentionQuery(null);
-    requestAnimationFrame(() => {
-      const pos = before.length + inserted.length;
-      commentRef.current?.focus();
-      commentRef.current?.setSelectionRange(pos, pos);
-    });
-  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -279,7 +240,10 @@ export function TaskPane({
 
   const postComment = useMutation({
     mutationFn: async () => {
-      const mentioned = resolveMentions(comment, members);
+      // body fica em HTML (imagem/menção coladas); resolveMentions e a prévia
+      // da notificação usam o texto puro, sem as tags.
+      const plainComment = comment.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const mentioned = resolveMentions(plainComment, members);
       await createComment({
         task_id: task.id,
         body: comment.trim(),
@@ -294,7 +258,7 @@ export function TaskPane({
           member_id,
           kind: mentioned.includes(member_id) ? "mencao" : "comentario",
           title: `${currentMember?.name ?? "Alguém"} comentou em "${task.title}"`,
-          body: comment.trim().slice(0, 240),
+          body: plainComment.slice(0, 240),
           task_id: task.id,
           project_id: task.project_id,
           actor_member_id: currentMember?.id ?? null,
@@ -303,7 +267,6 @@ export function TaskPane({
     },
     onSuccess: () => {
       setComment("");
-      setMentionQuery(null);
       invalidateComments();
     },
     onError: () => toast.error("Não foi possível comentar."),
@@ -796,6 +759,7 @@ export function TaskPane({
                       comment={item.comment}
                       author={memberOf(item.comment.author_member_id)}
                       members={members}
+                      taskId={task.id}
                       isOwn={
                         (currentUserId && item.comment.author_user_id === currentUserId) ||
                         (currentMember?.id && item.comment.author_member_id === currentMember.id)
@@ -827,64 +791,28 @@ export function TaskPane({
         </div>
 
         {/* composer fixo */}
-        <div className="relative shrink-0 border-t border-border bg-card px-5 py-3">
-          {mentionQuery !== null && mentionMatches.length > 0 && (
-            <div className="absolute right-5 bottom-full left-14 z-10 mb-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-[var(--shadow-raised)]">
-              {mentionMatches.map((m, i) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pickMention(m)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
-                    i === mentionIndex ? "bg-secondary" : "hover:bg-secondary",
-                  )}
-                >
-                  <Avatar name={m.name} color={m.avatar_color} src={m.avatar_url} size="xs" />
-                  <span className="truncate">{m.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="shrink-0 border-t border-border bg-card px-5 py-3">
           <div className="flex items-start gap-2">
             <Avatar name={currentMember?.name} color={currentMember?.avatar_color} src={currentMember?.avatar_url} />
-            <textarea
-              ref={commentRef}
-              placeholder="Escreva um comentário. Use @nome para mencionar alguém."
-              value={comment}
-              maxLength={2000}
-              onChange={(e) => onCommentChange(e.target.value, e.target.selectionStart)}
-              onKeyDown={(e) => {
-                if (mentionQuery !== null && mentionMatches.length > 0) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setMentionIndex((i) => (i + 1) % mentionMatches.length);
-                    return;
+            <div className="min-w-0 flex-1">
+              <RichTextEditor
+                resetKey={task.id}
+                value={comment}
+                onChange={setComment}
+                placeholder="Escreva um comentário. Use @nome para mencionar alguém."
+                collapsedHeight={96}
+                members={members}
+                onImagePaste={(file) => uploadDescriptionImage(task.id, file)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isRichContentEmpty(comment)) {
+                    postComment.mutate();
                   }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
-                    return;
-                  }
-                  if (e.key === "Enter" || e.key === "Tab") {
-                    e.preventDefault();
-                    pickMention(mentionMatches[mentionIndex]);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setMentionQuery(null);
-                    return;
-                  }
-                }
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && comment.trim().length > 1) postComment.mutate();
-              }}
-              className="field h-16 flex-1 resize-none"
-            />
+                }}
+              />
+            </div>
             <button
-              onClick={() => comment.trim().length > 1 && postComment.mutate()}
-              disabled={postComment.isPending || comment.trim().length < 2}
+              onClick={() => !isRichContentEmpty(comment) && postComment.mutate()}
+              disabled={postComment.isPending || isRichContentEmpty(comment)}
               className="btn btn-primary"
             >
               Enviar
@@ -906,6 +834,13 @@ function FieldLabel({ children, title }: { children: React.ReactNode; title?: st
 
 function formatDay(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+/** HTML do RichTextEditor "vazio" pra valer: sem texto E sem imagem/card de link (esses não têm texto, mas contam como conteúdo). */
+function isRichContentEmpty(html: string) {
+  const plain = html.replace(/<[^>]+>/g, "").trim();
+  if (plain) return false;
+  return !/<img\b|data-lp="1"/i.test(html);
 }
 
 function SubtaskCheck({
@@ -1073,36 +1008,6 @@ function AttachmentsBlock({
   );
 }
 
-/** Destaca "@Nome" quando bate com alguém da equipe — mesma detecção do resolveMentions. */
-function renderMentions(body: string, members: Member[]): React.ReactNode {
-  const names = members
-    .map((m) => m.name)
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length); // nomes mais longos primeiro, senão "@Ana" capturaria antes de "@Ana Ribeiro"
-  if (names.length === 0) return body;
-
-  // (?!letra/dígito) em vez de \b: \b só entende [A-Za-z0-9_], então nomes
-  // terminados em acento (ex.: "André") não fechariam boundary certo.
-  const pattern = new RegExp(
-    `@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\p{L}\\d])`,
-    "gu",
-  );
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(body))) {
-    if (match.index > last) parts.push(body.slice(last, match.index));
-    parts.push(
-      <span key={match.index} className="font-medium text-brand">
-        @{match[1]}
-      </span>,
-    );
-    last = match.index + match[0].length;
-  }
-  parts.push(body.slice(last));
-  return parts;
-}
-
 /**
  * Cartão de comentário na aba Atividade. Se o comentário for do próprio
  * usuário, mostra "editar" e "excluir" no hover. A política do banco só
@@ -1113,11 +1018,13 @@ function CommentItem({
   author,
   members,
   isOwn,
+  taskId,
 }: {
   comment: TaskComment;
   author: Member | null;
   members: Member[];
   isOwn: boolean;
+  taskId: string;
 }) {
   const invalidateComments = useInvalidate(["task_comments", "comment_mentions"]);
   const [editing, setEditing] = useState(false);
@@ -1140,7 +1047,7 @@ function CommentItem({
 
   const commit = () => {
     const trimmed = draft.trim();
-    if (!trimmed) {
+    if (isRichContentEmpty(trimmed)) {
       toast.error("O comentário não pode ficar vazio.");
       return;
     }
@@ -1164,11 +1071,12 @@ function CommentItem({
         </p>
         {editing ? (
           <div className="mt-1 space-y-1.5">
-            <textarea
-              autoFocus
+            <RichTextEditor
+              resetKey={comment.id}
               value={draft}
-              maxLength={2000}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={setDraft}
+              members={members}
+              onImagePaste={(file) => uploadDescriptionImage(taskId, file)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
                 if (e.key === "Escape") {
@@ -1176,9 +1084,7 @@ function CommentItem({
                   setEditing(false);
                 }
               }}
-              className="w-full rounded-lg border border-ring bg-background px-3 py-2 text-sm focus:outline-none"
-              rows={3}
-              disabled={save.isPending}
+              collapsedHeight={96}
             />
             <div className="flex items-center gap-2">
               <button onClick={commit} disabled={save.isPending} className="btn btn-primary px-2.5 py-1 text-xs">
@@ -1197,9 +1103,7 @@ function CommentItem({
             </div>
           </div>
         ) : (
-          <p className="mt-1 rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">
-            {renderMentions(comment.body, members)}
-          </p>
+          <RichTextView html={comment.body} className="mt-1 rounded-lg bg-secondary px-3 py-2" />
         )}
         {isOwn && !editing && (
           <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
