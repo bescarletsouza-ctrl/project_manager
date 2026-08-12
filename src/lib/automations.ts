@@ -1,6 +1,6 @@
 import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation, type Section } from "./asana";
 import { updateTask } from "./data";
-import type { Task } from "./domain";
+import { isUnplannedSectionName, type Task } from "./domain";
 
 export type AutoEvent =
   | "task_created"
@@ -277,6 +277,17 @@ export async function moveTaskSection(
       const mirror = allSections.find((s) => s.department_id === task.department_id && sameName(s));
       await updateTask(task.id, { section_id: mirror?.id ?? null });
     }
+  }
+
+  /**
+   * Demanda que CHEGA numa seção "Não planejado" também conta como fora do
+   * planejamento, não só a que já nasce lá — senão uma tarefa arrastada pra
+   * essa seção (o caso mais comum de "entrou fora do combinado") ficava fora
+   * dos relatórios. Só liga o flag (nunca desliga ao sair — a origem é o que
+   * importa pro histórico).
+   */
+  if (target && !task.unplanned && isUnplannedSectionName(target.name)) {
+    await updateTask(task.id, { unplanned: true });
   }
 
   return { applied };

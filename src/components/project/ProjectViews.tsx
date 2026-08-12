@@ -1447,7 +1447,12 @@ function SectionHeader({
  * recebeu — "selecionar tudo" e a contagem trabalham sobre ela, não sobre o
  * projeto inteiro.
  */
-function useTaskSelection(tasks: Task[], projectId: string, currentMemberId: string | null = null) {
+function useTaskSelection(
+  tasks: Task[],
+  projectId: string,
+  allSections: Section[],
+  currentMemberId: string | null = null,
+) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const allIds = tasks.map((t) => t.id);
@@ -1471,13 +1476,18 @@ function useTaskSelection(tasks: Task[], projectId: string, currentMemberId: str
   /** Move para outra seção — mesmo caminho que o drag-and-drop já usa (task_projects),
    * mais um espelho em tasks.section_id para tarefas sem vínculo em task_projects. */
   const bulkMove = useMutation({
-    mutationFn: (sectionId: string) =>
-      Promise.all(
+    mutationFn: (sectionId: string) => {
+      // Mesma regra do moveTaskSection: entrar numa seção "Não planejado" liga o
+      // flag (nunca desliga ao sair) — sem isso, mover em lote pra lá não contava
+      // pros relatórios de fora do planejamento.
+      const targetUnplanned = isUnplannedSectionName(allSections.find((s) => s.id === sectionId)?.name ?? "");
+      return Promise.all(
         [...selected].map(async (id) => {
           await setTaskProjectSection(id, projectId, sectionId || null);
-          await updateTask(id, { section_id: sectionId || null });
+          await updateTask(id, { section_id: sectionId || null, ...(targetUnplanned ? { unplanned: true } : {}) });
         }),
-      ),
+      );
+    },
     onSuccess: () => {
       invalidateMoved();
       toast.success("Tarefas movidas.");
@@ -1919,7 +1929,7 @@ export function ListView({
     bulkMove,
     bulkPatch,
     bulkDelete,
-  } = useTaskSelection(tasks, projectId, currentMemberId);
+  } = useTaskSelection(tasks, projectId, allSections, currentMemberId);
 
   // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
   // um campo personalizado como status próprio.
