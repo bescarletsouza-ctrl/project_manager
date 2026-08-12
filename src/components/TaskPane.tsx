@@ -1140,18 +1140,35 @@ function TaskProjectsBlock({
   sections: Section[];
 }) {
   const invalidateLinks = useInvalidate(["task_projects"]);
+  const invalidateTask = useInvalidate(["tasks"]);
   /** Etapa 1: pessoa escolhe o projeto; etapa 2: escolhe a seção dele. */
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
   const links = taskProjects.filter((l) => l.task_id === task.id);
   const linkedIds = new Set(links.map((l) => l.project_id));
+  const hasPrimaryProject = task.project_id != null;
 
   const add = useMutation({
-    mutationFn: ({ projectId, sectionId }: { projectId: string; sectionId: string | null }) =>
-      linkTaskToProject(task.id, projectId, sectionId),
+    mutationFn: async ({ projectId, sectionId }: { projectId: string; sectionId: string | null }) => {
+      if (!hasPrimaryProject) {
+        /**
+         * Tarefa ainda sem projeto principal (ex.: criada só no departamento):
+         * o primeiro projeto adicionado vira o project_id dela — senão ela só
+         * aparece no board do próprio projeto (que também olha task_projects),
+         * mas some do resto do sistema (Todas as tarefas, filtros, pill de
+         * projeto no Quadro do departamento…), que só lê tasks.project_id.
+         */
+        await updateTask(task.id, { project_id: projectId, section_id: sectionId });
+        return;
+      }
+      await linkTaskToProject(task.id, projectId, sectionId);
+    },
     onSuccess: () => {
       setPendingProjectId(null);
       invalidateLinks();
-      toast.success("Tarefa agora aparece neste projeto também.");
+      invalidateTask();
+      toast.success(
+        hasPrimaryProject ? "Tarefa agora aparece neste projeto também." : "Projeto definido para a tarefa.",
+      );
     },
     onError: () => toast.error("Não foi possível vincular ao projeto."),
   });
@@ -1201,7 +1218,8 @@ function TaskProjectsBlock({
           >
             <option value="">+ Adicionar a projeto</option>
             {projects
-              .filter((p) => !linkedIds.has(p.id))
+              // O projeto principal (task.project_id) já aparece no pill do topo — não repete aqui.
+              .filter((p) => !linkedIds.has(p.id) && p.id !== task.project_id)
               .map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
