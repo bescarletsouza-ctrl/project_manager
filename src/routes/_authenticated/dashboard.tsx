@@ -147,6 +147,8 @@ function Dashboard() {
   /** Planejadas x fora do planejamento entre as concluídas do período — base da análise comparativa. */
   const plannedDone = done.filter((t) => !t.unplanned);
   const unplannedDone = done.filter((t) => t.unplanned);
+  /** Demanda fora do planejamento que ainda não foi concluída — visibilidade de intake, não de impacto. */
+  const unplannedOpen = open.filter((t) => t.unplanned);
 
   const byStatus = STATUS_ORDER.map((s) => ({
     status: s,
@@ -258,6 +260,12 @@ function Dashboard() {
           value={`${done.length ? pct(done.filter((t) => t.unplanned).length, done.length) : 0}%`}
           hint="das concluídas · não entraram pelo planejamento"
           tone="warning"
+        />
+        <StatCard
+          label="Demanda fora do planejamento"
+          value={unplannedOpen.length}
+          hint="em aberto agora, ainda não concluídas"
+          tone={unplannedOpen.length ? "warning" : "success"}
         />
       </div>
 
