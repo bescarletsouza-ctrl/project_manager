@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
@@ -106,6 +106,36 @@ function SortableTh({
   );
 }
 
+/**
+ * Lembra a última visualização escolhida (Lista/Quadro) entre sessões — sem
+ * isso, trocar de página (ou fechar o navegador) sempre voltava pro Quadro,
+ * mesmo pra quem prefere trabalhar na Lista.
+ */
+function useViewPreference(): ["lista" | "kanban", (v: "lista" | "kanban") => void] {
+  const storageKey = "fluxo:tarefas-view";
+  const [view, setViewState] = useState<"lista" | "kanban">("kanban");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw === "lista" || raw === "kanban") setViewState(raw);
+    } catch {
+      /* modo privado ou cota cheia: só afeta esta sessão */
+    }
+  }, []);
+
+  const setView = (v: "lista" | "kanban") => {
+    setViewState(v);
+    try {
+      localStorage.setItem(storageKey, v);
+    } catch {
+      /* modo privado ou cota cheia: só afeta esta sessão */
+    }
+  };
+
+  return [view, setView];
+}
+
 export const Route = createFileRoute("/_authenticated/tarefas")({
   head: () => ({
     meta: [
@@ -129,7 +159,7 @@ function TasksPage() {
   // status_events no escopo.
   const invalidateStatus = useInvalidate(["tasks", "status_events"]);
   const invalidateTask = useInvalidate(["tasks"]);
-  const [view, setView] = useState<"lista" | "kanban">("kanban");
+  const [view, setView] = useViewPreference();
   const [selected, setSelected] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
   const [filters, setFilters] = useState({
@@ -138,6 +168,7 @@ function TasksPage() {
     status: "",
     priority: "",
     deadline: "",
+    hideDone: false,
     from: "",
     to: "",
   });
@@ -165,6 +196,7 @@ function TasksPage() {
           (!filters.status || t.status === filters.status) &&
           (!filters.priority || t.priority === filters.priority) &&
           (!filters.deadline || deadlineStatus(t) === filters.deadline) &&
+          (!filters.hideDone || t.status !== "concluido") &&
           (!filters.from || (t.due_date ?? "") >= filters.from) &&
           (!filters.to || (t.due_date ?? "") <= filters.to),
       ),
@@ -220,6 +252,14 @@ function TasksPage() {
           placeholder="Situação do prazo"
           options={Object.entries(DEADLINE_STATUS_LABEL).map(([value, label]) => ({ value, label }))}
         />
+        <label className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={filters.hideDone}
+            onChange={(e) => setFilters({ ...filters, hideDone: e.target.checked })}
+          />
+          Ocultar concluídas
+        </label>
         <label className="flex items-center gap-1 text-xs text-muted-foreground">
           De
           <input
@@ -240,7 +280,16 @@ function TasksPage() {
         </label>
         <button
           onClick={() =>
-            setFilters({ project: "", assignee: "", status: "", priority: "", deadline: "", from: "", to: "" })
+            setFilters({
+              project: "",
+              assignee: "",
+              status: "",
+              priority: "",
+              deadline: "",
+              hideDone: false,
+              from: "",
+              to: "",
+            })
           }
           className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary"
         >
