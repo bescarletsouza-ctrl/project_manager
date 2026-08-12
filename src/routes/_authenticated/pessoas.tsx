@@ -106,6 +106,11 @@ function PeoplePage() {
                 <Pill tone={m.load >= 1.15 ? "danger" : m.load >= 0.85 ? "warning" : "success"}>
                   {m.loadLabel}
                 </Pill>
+                {m.late > 0 && (
+                  <Pill tone="danger">
+                    {m.late} atrasada{m.late > 1 ? "s" : ""}
+                  </Pill>
+                )}
               </div>
               <p className="mt-0.5 truncate text-sm text-muted-foreground">
                 {nameById(departments, m.member.department_id)} · {m.done} entregas · {m.points} pts
