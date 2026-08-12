@@ -37,7 +37,6 @@ import {
   deleteComment,
   deleteTaskAttachment,
   getAttachmentUrl,
-  linkTaskToProject,
   mentionsQuery,
   notifyAssignment,
   notifyStatusMilestone,
@@ -47,6 +46,7 @@ import {
   removeDependency,
   resolveMentions,
   setFieldValue,
+  setTaskProjectSection,
   unlinkTaskFromProject,
   type Automation,
   type CustomField,
@@ -1157,10 +1157,17 @@ function TaskProjectsBlock({
          * mas some do resto do sistema (Todas as tarefas, filtros, pill de
          * projeto no Quadro do departamento…), que só lê tasks.project_id.
          */
-        await updateTask(task.id, { project_id: projectId, section_id: sectionId });
-        return;
+        await updateTask(task.id, { project_id: projectId });
       }
-      await linkTaskToProject(task.id, projectId, sectionId);
+      /**
+       * A posição dentro do projeto vai pro task_projects (upsert), NUNCA pro
+       * task.section_id — esse campo é "nativo" do departamento (mesma regra
+       * do moveTaskSection). Gravar a seção do projeto ali de novo tirava a
+       * tarefa da seção do departamento onde ela foi criada (bug reportado:
+       * task criada em "Não planejado" pulava pra 1ª seção do projeto ao
+       * vincular).
+       */
+      await setTaskProjectSection(task.id, projectId, sectionId);
     },
     onSuccess: () => {
       setPendingProjectId(null);
