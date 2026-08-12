@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bits";
 import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
@@ -10,21 +11,100 @@ import { DeadlinePill } from "@/components/project/ProjectViews";
 import { RichTextView } from "@/components/RichTextEditor";
 import { notifyAssignment } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
+import { cn } from "@/lib/utils";
 import {
   COMPLEXITY_OPTIONS,
+  DEADLINE_STATUS_LABEL,
   PRIORITIES,
   PRIORITY_LABEL,
   STATUS_META,
   STATUS_ORDER,
+  deadlineStatus,
   formatHours,
   cycleTime,
   isLate,
   leadTime,
   timeInStatus,
   timeToStart,
+  type DeadlineStatus,
+  type Member,
+  type Project,
   type Task,
   type TaskStatus,
 } from "@/lib/domain";
+
+/** Ordem de urgência pra ordenar a coluna "Situação do prazo" — atrasado primeiro. */
+const DEADLINE_SORT_RANK: Record<DeadlineStatus, number> = {
+  atrasado: 0,
+  vencendo_hoje: 1,
+  no_prazo: 2,
+  sem_prazo: 3,
+  concluido: 4,
+  cancelado: 5,
+};
+
+type SortKey = "title" | "project" | "assignee" | "status" | "complexity" | "due_date" | "deadline" | "leadtime";
+type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
+
+function compareTasks(a: Task, b: Task, key: SortKey, projects: Project[], members: Member[]): number {
+  switch (key) {
+    case "title":
+      return a.title.localeCompare(b.title);
+    case "project":
+      return nameById(projects, a.project_id).localeCompare(nameById(projects, b.project_id));
+    case "assignee":
+      return nameById(members, a.assignee_id).localeCompare(nameById(members, b.assignee_id));
+    case "status":
+      return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+    case "complexity":
+      return a.complexity - b.complexity;
+    case "due_date":
+      return (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31");
+    case "deadline":
+      return DEADLINE_SORT_RANK[deadlineStatus(a)] - DEADLINE_SORT_RANK[deadlineStatus(b)];
+    case "leadtime":
+      return (leadTime(a) ?? -1) - (leadTime(b) ?? -1);
+    default:
+      return 0;
+  }
+}
+
+/** Cabeçalho de coluna clicável, com seta de ordenação (mesmo padrão da Lista do projeto). */
+function SortableTh({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sort?.key === sortKey;
+  return (
+    <th className={cn("px-4 py-2 font-medium", className)}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn("group flex items-center gap-1", active ? "text-foreground" : "hover:text-foreground")}
+      >
+        {label}
+        {active ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="size-3" />
+          ) : (
+            <ArrowDown className="size-3" />
+          )
+        ) : (
+          <ArrowUpDown className="size-3 opacity-0 group-hover:opacity-50" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
   head: () => ({
@@ -52,7 +132,18 @@ function TasksPage() {
   const [view, setView] = useState<"lista" | "kanban">("kanban");
   const [selected, setSelected] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
-  const [filters, setFilters] = useState({ project: "", assignee: "", status: "", priority: "", late: false });
+  const [filters, setFilters] = useState({
+    project: "",
+    assignee: "",
+    status: "",
+    priority: "",
+    deadline: "",
+    from: "",
+    to: "",
+  });
+  const [sort, setSort] = useState<SortState>(null);
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
 
   const move = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updateTask(id, { status }),
@@ -71,10 +162,18 @@ function TasksPage() {
           (!filters.assignee || t.assignee_id === filters.assignee) &&
           (!filters.status || t.status === filters.status) &&
           (!filters.priority || t.priority === filters.priority) &&
-          (!filters.late || isLate(t)),
+          (!filters.deadline || deadlineStatus(t) === filters.deadline) &&
+          (!filters.from || (t.due_date ?? "") >= filters.from) &&
+          (!filters.to || (t.due_date ?? "") <= filters.to),
       ),
     [tasks, filters],
   );
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    const factor = sort.dir === "asc" ? 1 : -1;
+    return filtered.slice().sort((a, b) => compareTasks(a, b, sort.key, projects, members) * factor);
+  }, [filtered, sort, projects, members]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
@@ -113,12 +212,34 @@ function TasksPage() {
         <Select value={filters.assignee} onChange={(v) => setFilters({ ...filters, assignee: v })} placeholder="Responsável" options={members.map((m) => ({ value: m.id, label: m.name }))} />
         <Select value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} placeholder="Status" options={STATUS_ORDER.map((s) => ({ value: s, label: STATUS_META[s].label }))} />
         <Select value={filters.priority} onChange={(v) => setFilters({ ...filters, priority: v })} placeholder="Prioridade" options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} />
-        <label className="flex items-center gap-2 rounded-md border border-input px-3 py-1.5 text-sm">
-          <input type="checkbox" checked={filters.late} onChange={(e) => setFilters({ ...filters, late: e.target.checked })} />
-          Somente atrasadas
+        <Select
+          value={filters.deadline}
+          onChange={(v) => setFilters({ ...filters, deadline: v })}
+          placeholder="Situação do prazo"
+          options={Object.entries(DEADLINE_STATUS_LABEL).map(([value, label]) => ({ value, label }))}
+        />
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          De
+          <input
+            type="date"
+            value={filters.from}
+            onChange={(e) => setFilters({ ...filters, from: e.target.value })}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          Até
+          <input
+            type="date"
+            value={filters.to}
+            onChange={(e) => setFilters({ ...filters, to: e.target.value })}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          />
         </label>
         <button
-          onClick={() => setFilters({ project: "", assignee: "", status: "", priority: "", late: false })}
+          onClick={() =>
+            setFilters({ project: "", assignee: "", status: "", priority: "", deadline: "", from: "", to: "" })
+          }
           className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary"
         >
           Limpar
@@ -181,18 +302,18 @@ function TasksPage() {
             <thead className="bg-muted/60 text-left text-xs text-muted-foreground uppercase">
               <tr>
                 <th className="px-4 py-2 font-medium">✓</th>
-                <th className="px-4 py-2 font-medium">Tarefa</th>
-                <th className="px-4 py-2 font-medium">Projeto</th>
-                <th className="px-4 py-2 font-medium">Responsável</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Pts</th>
-                <th className="px-4 py-2 font-medium">Prazo</th>
-                <th className="px-4 py-2 font-medium">Situação do prazo</th>
-                <th className="px-4 py-2 font-medium">Lead time</th>
+                <SortableTh label="Tarefa" sortKey="title" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Projeto" sortKey="project" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Responsável" sortKey="assignee" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Pts" sortKey="complexity" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Prazo" sortKey="due_date" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Situação do prazo" sortKey="deadline" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Lead time" sortKey="leadtime" sort={sort} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((t) => (
+              {sorted.map((t) => (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                     <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} />
