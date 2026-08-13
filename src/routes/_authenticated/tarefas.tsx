@@ -20,6 +20,7 @@ import {
   type Section,
 } from "@/lib/asana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { softClass } from "@/lib/colors";
 import { useCurrentMember } from "@/lib/useAsana";
 import { cn } from "@/lib/utils";
 import {
@@ -436,7 +437,9 @@ function TasksPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((t) => (
+              {sorted.map((t) => {
+                const section = sections.find((s) => s.id === t.section_id);
+                return (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                     <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} automations={automations} />
@@ -445,7 +448,9 @@ function TasksPage() {
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
                   <td className="px-4 py-2">{nameById(members, t.assignee_id)}</td>
                   <td className="px-4 py-2">
-                    <Pill>{sections.find((s) => s.id === t.section_id)?.name ?? "Sem seção"}</Pill>
+                    <span className={cn("inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", softClass(section?.color))}>
+                      {section?.name ?? "Sem seção"}
+                    </span>
                   </td>
                   <td className="px-4 py-2 tabular-nums">{t.complexity}</td>
                   <td className={`px-4 py-2 ${isLate(t) ? "text-destructive" : ""}`}>{t.due_date ?? "—"}</td>
@@ -454,7 +459,8 @@ function TasksPage() {
                   </td>
                   <td className="px-4 py-2 tabular-nums">{formatHours(leadTime(t))}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

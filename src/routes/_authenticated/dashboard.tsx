@@ -92,6 +92,14 @@ function daysAgoIso(days: number) {
 function filterByDate(tasks: Task[], from: string, to: string) {
   if (!from && !to) return tasks;
   return tasks.filter((t) => {
+    // Tarefa aberta sempre conta, não importa quando foi criada — são
+    // pendências de AGORA. O filtro de período só decide quais tarefas JÁ
+    // CONCLUÍDAS/CANCELADAS entram na foto do período (mesma regra de
+    // Relatórios). Sem isso, uma demanda antiga (ex.: mais de 30 dias, o
+    // preset padrão do Dashboard) sumia de toda estatística mesmo estando
+    // aberta agora — foi como uma tarefa "Fora do planejamento" ficou de
+    // fora do card mesmo com o flag certo.
+    if (isOpen(t)) return true;
     const d = t.created_at.slice(0, 10);
     if (from && d < from) return false;
     if (to && d > to) return false;
