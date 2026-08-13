@@ -16,8 +16,10 @@ import {
   notifyAssignment,
   notifyStatusMilestone,
   sectionsQuery,
+  taskProjectsQuery,
   type Automation,
   type Section,
+  type TaskProject,
 } from "@/lib/asana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { colorForSectionName, softClass } from "@/lib/colors";
@@ -57,6 +59,22 @@ const DEADLINE_SORT_RANK: Record<DeadlineStatus, number> = {
 type SortKey = "title" | "project" | "assignee" | "section" | "complexity" | "due_date" | "deadline" | "leadtime";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
+/**
+ * Seção "de verdade" da tarefa no projeto principal dela. Uma tarefa vinculada
+ * a outro projeto pelo "+ Adicionar a projeto" (TaskPane) guarda a posição
+ * NAQUELE projeto em task_projects.section_id, não em task.section_id (esse
+ * campo é o "nativo", usado pelo departamento) — mesma regra de sectionOf()
+ * na página do projeto. Ler task.section_id direto aqui mostrava "Sem seção"
+ * pra tarefa que tinha seção certinha dentro do próprio projeto.
+ */
+function sectionIdOfTask(t: Task, taskProjects: TaskProject[]): string | null {
+  if (t.project_id) {
+    const link = taskProjects.find((l) => l.task_id === t.id && l.project_id === t.project_id);
+    if (link?.section_id) return link.section_id;
+  }
+  return t.section_id;
+}
+
 function compareTasks(
   a: Task,
   b: Task,
@@ -64,6 +82,7 @@ function compareTasks(
   projects: Project[],
   members: Member[],
   sections: Section[],
+  taskProjects: TaskProject[],
 ): number {
   switch (key) {
     case "title":
@@ -73,7 +92,9 @@ function compareTasks(
     case "assignee":
       return nameById(members, a.assignee_id).localeCompare(nameById(members, b.assignee_id));
     case "section":
-      return nameById(sections, a.section_id).localeCompare(nameById(sections, b.section_id));
+      return nameById(sections, sectionIdOfTask(a, taskProjects)).localeCompare(
+        nameById(sections, sectionIdOfTask(b, taskProjects)),
+      );
     case "complexity":
       return a.complexity - b.complexity;
     case "due_date":
@@ -177,6 +198,7 @@ function TasksPage() {
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const sections = useQuery(sectionsQuery).data ?? [];
+  const taskProjects = useQuery(taskProjectsQuery).data ?? [];
   // Status muda dispara trigger de histórico (task_status_history) — inclui
   // status_events no escopo. Automação pode mexer em task_projects (mover
   // seção de projeto), task_field_values (set_field) ou criar notificação.
@@ -259,8 +281,10 @@ function TasksPage() {
   const sorted = useMemo(() => {
     if (!sort) return filtered;
     const factor = sort.dir === "asc" ? 1 : -1;
-    return filtered.slice().sort((a, b) => compareTasks(a, b, sort.key, projects, members, sections) * factor);
-  }, [filtered, sort, projects, members, sections]);
+    return filtered
+      .slice()
+      .sort((a, b) => compareTasks(a, b, sort.key, projects, members, sections, taskProjects) * factor);
+  }, [filtered, sort, projects, members, sections, taskProjects]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
@@ -438,7 +462,7 @@ function TasksPage() {
             </thead>
             <tbody>
               {sorted.map((t) => {
-                const section = sections.find((s) => s.id === t.section_id);
+                const section = sections.find((s) => s.id === sectionIdOfTask(t, taskProjects));
                 return (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
