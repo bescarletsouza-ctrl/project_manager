@@ -115,6 +115,8 @@ export type Task = {
   completed: boolean;
   /** true quando a tarefa foi CRIADA numa seção "Não planejado" — não muda se ela for movida depois. Ver isUnplannedSectionName. */
   unplanned: boolean;
+  /** Quem criou a tarefa (members.id) — capturado sozinho pelo DEFAULT da coluna no banco, não precisa gravar do app. */
+  created_by: string | null;
 };
 
 export type Member = {

@@ -766,6 +766,7 @@ export type Database = {
           completed_at: string | null
           complexity: number
           created_at: string
+          created_by: string | null
           department_id: string | null
           description: string | null
           due_date: string | null
@@ -796,6 +797,7 @@ export type Database = {
           completed_at?: string | null
           complexity?: number
           created_at?: string
+          created_by?: string | null
           department_id?: string | null
           description?: string | null
           due_date?: string | null
@@ -826,6 +828,7 @@ export type Database = {
           completed_at?: string | null
           complexity?: number
           created_at?: string
+          created_by?: string | null
           department_id?: string | null
           description?: string | null
           due_date?: string | null
@@ -861,6 +864,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "members"
             referencedColumns: ["id"]
           },
           {
