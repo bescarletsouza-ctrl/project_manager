@@ -391,8 +391,24 @@ export function projectHealth(project: Project, tasks: Task[]) {
 /** Reconhece a seção "Não planejado" (existe por convenção em projetos/departamentos), ignorando acento e caixa. */
 const DIACRITICS_RE = /[\u0300-\u036f]/g;
 
+function normalizeSectionName(name: string) {
+  return name.normalize("NFD").replace(DIACRITICS_RE, "").trim().toLowerCase();
+}
+
 export function isUnplannedSectionName(name: string) {
-  return name.normalize("NFD").replace(DIACRITICS_RE, "").trim().toLowerCase() === "nao planejado";
+  return normalizeSectionName(name) === "nao planejado";
+}
+
+/** Secoes de aprovacao (por convencao de nome) -- ver isReworkSectionName: sair daqui pra uma secao de refacao conta como retrabalho. */
+const APPROVAL_SECTION_NAMES = new Set(["em aprovacao", "aprovacao", "aguardando aprovacao"]);
+export function isApprovalSectionName(name: string) {
+  return APPROVAL_SECTION_NAMES.has(normalizeSectionName(name));
+}
+
+/** Secoes de refacao/retrabalho (por convencao de nome). */
+const REWORK_SECTION_NAMES = new Set(["refacao", "retrabalho", "correcao"]);
+export function isReworkSectionName(name: string) {
+  return REWORK_SECTION_NAMES.has(normalizeSectionName(name));
 }
 
 export const TASK_TYPES = ["execucao", "criacao", "revisao", "reuniao", "suporte"] as const;

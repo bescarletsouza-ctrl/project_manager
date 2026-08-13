@@ -1,6 +1,6 @@
 import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation, type Section } from "./asana";
 import { updateTask } from "./data";
-import { isUnplannedSectionName, type Task } from "./domain";
+import { isApprovalSectionName, isReworkSectionName, isUnplannedSectionName, type Task } from "./domain";
 
 export type AutoEvent =
   | "task_created"
@@ -288,6 +288,19 @@ export async function moveTaskSection(
    */
   if (target && !task.unplanned && isUnplannedSectionName(target.name)) {
     await updateTask(task.id, { unplanned: true });
+  }
+
+  /**
+   * Sair de uma seção de aprovação direto pra uma de refação também é
+   * retrabalho, mesmo sem a tarefa nunca ter passado por "concluído" — usa o
+   * mesmo contador (reopen_count) que o retrabalho por status já usa, pra
+   * cair automaticamente em todo relatório que já lê esse campo. Compara
+   * pelo NOME da seção de origem (task.section_id, valor antes deste move),
+   * não pelo id — a seção de aprovação pode ser de projeto ou departamento.
+   */
+  const source = task.section_id ? allSections.find((s) => s.id === task.section_id) : null;
+  if (source && target && isApprovalSectionName(source.name) && isReworkSectionName(target.name)) {
+    await updateTask(task.id, { reopen_count: task.reopen_count + 1 });
   }
 
   return { applied };

@@ -61,7 +61,9 @@ import {
   PRIORITIES,
   PRIORITY_LABEL,
   deadlineStatus,
+  isApprovalSectionName,
   isLate,
+  isReworkSectionName,
   isUnplannedSectionName,
   type Department,
   type Member,
@@ -1479,12 +1481,22 @@ function useTaskSelection(
     mutationFn: (sectionId: string) => {
       // Mesma regra do moveTaskSection: entrar numa seção "Não planejado" liga o
       // flag (nunca desliga ao sair) — sem isso, mover em lote pra lá não contava
-      // pros relatórios de fora do planejamento.
-      const targetUnplanned = isUnplannedSectionName(allSections.find((s) => s.id === sectionId)?.name ?? "");
+      // pros relatórios de fora do planejamento. E sair de "Aprovação" direto
+      // pra "Refação" em lote também conta como retrabalho (reopen_count).
+      const targetSection = allSections.find((s) => s.id === sectionId);
+      const targetUnplanned = isUnplannedSectionName(targetSection?.name ?? "");
+      const targetRework = isReworkSectionName(targetSection?.name ?? "");
       return Promise.all(
         [...selected].map(async (id) => {
+          const task = tasks.find((t) => t.id === id);
+          const sourceSection = task?.section_id ? allSections.find((s) => s.id === task.section_id) : null;
+          const isRework = targetRework && sourceSection && isApprovalSectionName(sourceSection.name);
           await setTaskProjectSection(id, projectId, sectionId || null);
-          await updateTask(id, { section_id: sectionId || null, ...(targetUnplanned ? { unplanned: true } : {}) });
+          await updateTask(id, {
+            section_id: sectionId || null,
+            ...(targetUnplanned ? { unplanned: true } : {}),
+            ...(isRework && task ? { reopen_count: task.reopen_count + 1 } : {}),
+          });
         }),
       );
     },
