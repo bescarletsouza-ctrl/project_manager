@@ -288,9 +288,12 @@ function ProjectDetail() {
       if (filters.assignee && t.assignee_id !== filters.assignee) return false;
       if (filters.status && t.status !== filters.status) return false;
       if (filters.hideDone && t.status === "concluido") return false;
-      const created = t.created_at.slice(0, 10);
-      if (filters.from && created < filters.from) return false;
-      if (filters.to && created > filters.to) return false;
+      // Filtra por PRAZO (due_date), não por data de criação — sem isso,
+      // De/Até parecia não fazer nada quando as tarefas foram todas criadas
+      // no mesmo período mas com prazos espalhados. Sem prazo não entra
+      // quando o filtro está ativo (não dá pra confirmar se cai no intervalo).
+      if (filters.from && (!t.due_date || t.due_date < filters.from)) return false;
+      if (filters.to && (!t.due_date || t.due_date > filters.to)) return false;
       return true;
     });
   }, [projectTasks, filters]);
@@ -352,6 +355,7 @@ function ProjectDetail() {
     sectionOf,
     onOpenTask: (t: Task) => setOpenTask(t),
     currentMemberId: currentMember?.id ?? null,
+    taskProjects,
   };
 
   const showToolbar = view === "list" || view === "board" || view === "calendar" || view === "timeline";
@@ -538,7 +542,7 @@ function ProjectDetail() {
             />
             Ocultar concluídas
           </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Filtra por prazo (due_date)">
             De
             <input
               type="date"
@@ -547,7 +551,7 @@ function ProjectDetail() {
               className="field h-8 w-auto"
             />
           </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Filtra por prazo (due_date)">
             Até
             <input
               type="date"

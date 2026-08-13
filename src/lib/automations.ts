@@ -1,4 +1,11 @@
-import { linkTaskToProject, setFieldValue, setTaskProjectSection, type Automation, type Section } from "./asana";
+import {
+  linkTaskToProject,
+  setFieldValue,
+  setTaskProjectSection,
+  type Automation,
+  type Section,
+  type TaskProject,
+} from "./asana";
 import { updateTask } from "./data";
 import { isApprovalSectionName, isReworkSectionName, isUnplannedSectionName, type Task } from "./domain";
 
@@ -304,4 +311,50 @@ export async function moveTaskSection(
   }
 
   return { applied };
+}
+
+/**
+ * Muda o departamento de uma tarefa que já tem (ou vai ficar sem) projeto.
+ * task.section_id é o campo "nativo" — serve pro projeto quando não há
+ * departamento, e pro departamento quando há (mesma regra de moveTaskSection).
+ * Setar department_id direto (updateTask cru) sem tratar isso fazia a tarefa
+ * "esquecer" a seção do projeto: o campo nativo virava do departamento (que
+ * não reconhece aquele id de seção → vira órfã, cai na 1ª seção dele por
+ * padrão) e a posição no projeto nunca foi salva em nenhum outro lugar.
+ *
+ * Aqui: antes de mudar, preserva a posição atual no projeto via
+ * task_projects (upsert — não estraga nada se já existir um vínculo).
+ * Ganhando departamento novo, espelha por NOME pra uma seção dele se houver
+ * uma com o mesmo nome (mesma convenção do moveTaskSection); senão fica sem
+ * seção nativa (órfã, cai na 1ª seção do departamento — comportamento já
+ * esperado pelo produto). Perdendo o departamento, recupera a seção do
+ * projeto salva no vínculo.
+ */
+export async function setTaskDepartment(
+  task: Task,
+  departmentId: string | null,
+  allSections: Section[],
+  taskProjects: TaskProject[],
+): Promise<void> {
+  if (!task.project_id) {
+    await updateTask(task.id, { department_id: departmentId });
+    return;
+  }
+
+  if (departmentId) {
+    await setTaskProjectSection(task.id, task.project_id, task.section_id);
+    const currentSection = task.section_id ? allSections.find((s) => s.id === task.section_id) : null;
+    const mirror = currentSection
+      ? allSections.find(
+          (s) =>
+            s.department_id === departmentId &&
+            s.name.trim().toLowerCase() === currentSection.name.trim().toLowerCase(),
+        )
+      : null;
+    await updateTask(task.id, { department_id: departmentId, section_id: mirror?.id ?? null });
+    return;
+  }
+
+  const link = taskProjects.find((l) => l.task_id === task.id && l.project_id === task.project_id);
+  await updateTask(task.id, { department_id: null, section_id: link?.section_id ?? task.section_id });
 }

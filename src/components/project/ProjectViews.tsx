@@ -53,8 +53,9 @@ import {
   type CustomField,
   type Section,
   type TaskFieldValue,
+  type TaskProject,
 } from "@/lib/asana";
-import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, moveTaskSection, runAutomations, setTaskDepartment } from "@/lib/automations";
 import {
   DEADLINE_STATUS_LABEL,
   DEADLINE_STATUS_TONE,
@@ -94,6 +95,8 @@ export type ViewProps = {
   onOpenTask: (task: Task) => void;
   /** Quem está logado — só para notificar a pessoa designada ao atribuir (não notifica a si mesmo). */
   currentMemberId: string | null;
+  /** Vínculos de multi-projeto — precisa pra preservar a posição no projeto ao mudar o departamento de uma tarefa (ver setTaskDepartment). */
+  taskProjects: TaskProject[];
 };
 
 /* ------------------------- utilidades ------------------------- */
@@ -874,6 +877,7 @@ function useTaskPatch(
   allSections: Section[] = [],
   currentMemberId: string | null = null,
   currentMemberName: string | null = null,
+  taskProjects: TaskProject[] = [],
 ) {
   // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
   // mas o de seção pode rodar automação (task_projects/task_field_values/
@@ -886,6 +890,12 @@ function useTaskPatch(
       if ("section_id" in patch && patch.section_id !== task.section_id) {
         const { applied } = await moveTaskSection(task, patch.section_id ?? null, allSections, automations);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+        return;
+      }
+      // Departamento muda com a tarefa já tendo projeto — precisa preservar
+      // a posição no projeto (ver setTaskDepartment) ou ela vira órfã lá.
+      if ("department_id" in patch && patch.department_id !== task.department_id) {
+        await setTaskDepartment(task, patch.department_id ?? null, allSections, taskProjects);
         return;
       }
       await updateTask(task.id, patch);
@@ -1185,6 +1195,7 @@ function TaskCells({
   cols,
   currentMemberId,
   sectionOf,
+  taskProjects,
 }: {
   task: Task;
   columns: string[];
@@ -1203,6 +1214,7 @@ function TaskCells({
    * mesma resolução que o Quadro já usa pra agrupar os cards.
    */
   sectionOf: (t: Task) => string;
+  taskProjects: TaskProject[];
 }) {
   const patch = useTaskPatch(
     task,
@@ -1210,6 +1222,7 @@ function TaskCells({
     allSections,
     currentMemberId,
     members.find((m) => m.id === currentMemberId)?.name ?? null,
+    taskProjects,
   );
   const has = (id: string) => columns.includes(id);
   /**
@@ -1919,6 +1932,7 @@ export function ListView({
   sectionOf,
   onOpenTask,
   currentMemberId,
+  taskProjects,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
     useSectionMutations(projectId, project, automations, tasks, allSections);
@@ -2272,7 +2286,7 @@ export function ListView({
                             </span>
                           ))}
                           <span onClick={(e) => e.stopPropagation()} className="contents">
-                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} />
+                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} />
                           </span>
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
@@ -2355,7 +2369,7 @@ export function ListView({
                                 <DeadlinePill task={s} />
                               </span>
                               <span onClick={(e) => e.stopPropagation()} className="contents">
-                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} />
+                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} />
                               </span>
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>

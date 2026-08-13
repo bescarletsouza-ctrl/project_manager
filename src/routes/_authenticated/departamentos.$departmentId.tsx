@@ -409,13 +409,16 @@ function DepartmentDetail() {
     ids.splice(at < 0 ? ids.length : at, 0, dragSectionId);
     reorderSections.mutate(ids);
   };
-  /** Sem o filtro De/Até (que é por data de criação) — o Calendário navega por mês e quer ver tudo que tem prazo. */
+  /** Sem o filtro De/Até (que é por prazo) — o Calendário navega por mês e quer ver tudo que tem prazo. */
   const deptTasksAll = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
   const deptTasks = tasks.filter((t) => {
     if (t.department_id !== departmentId || t.parent_task_id) return false;
-    const created = t.created_at.slice(0, 10);
-    if (dateFrom && created < dateFrom) return false;
-    if (dateTo && created > dateTo) return false;
+    // Filtra por PRAZO (due_date), não por data de criação — sem isso, De/Até
+    // parecia não fazer nada quando as tarefas foram todas criadas no mesmo
+    // período mas com prazos espalhados. Sem prazo não entra quando o filtro
+    // está ativo (não dá pra confirmar se cai dentro do intervalo).
+    if (dateFrom && (!t.due_date || t.due_date < dateFrom)) return false;
+    if (dateTo && (!t.due_date || t.due_date > dateTo)) return false;
     return true;
   });
   const deptMembers = members.filter((m) => departmentIdsOf(m, memberDepartments).includes(departmentId));
@@ -529,7 +532,7 @@ function DepartmentDetail() {
           <Pill>{deptMembers.length} pessoas no departamento</Pill>
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Filtra por prazo (due_date)">
             De
             <input
               type="date"
@@ -538,7 +541,7 @@ function DepartmentDetail() {
               className="field h-8 w-auto"
             />
           </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Filtra por prazo (due_date)">
             Até
             <input
               type="date"

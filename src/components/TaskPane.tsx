@@ -57,7 +57,7 @@ import {
   type TaskFieldValue,
   type TaskProject,
 } from "@/lib/asana";
-import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, moveTaskSection, runAutomations, setTaskDepartment } from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -199,6 +199,12 @@ export function TaskPane({
       if ("section_id" in input) {
         const next = (input["section_id"] as string | null) || null;
         await moveTaskSection(task, next, sections, automations);
+        return;
+      }
+
+      if ("department_id" in input) {
+        const next = (input["department_id"] as string | null) || null;
+        await setTaskDepartment(task, next, sections, taskProjects);
         return;
       }
 
