@@ -65,3 +65,18 @@ export function colorForSeed(seed: string): ColorKey {
   }
   return COLOR_KEYS[Math.abs(hash) % COLOR_KEYS.length]!;
 }
+
+const DIACRITICS_RE = /[̀-ͯ]/g;
+
+/**
+ * Cor de uma seção pelo nome: "Concluída"/"Concluído" (qualquer variação de
+ * gênero/plural) é sempre verde, por convenção — as demais caem no hash de
+ * colorForSeed. Sem esse caso especial, "Concluída" podia colidir com
+ * qualquer outro nome (só 8 cores no hash) e sair com uma cor sem relação
+ * nenhuma com "terminado".
+ */
+export function colorForSectionName(name: string): ColorKey {
+  const normalized = name.normalize("NFD").replace(DIACRITICS_RE, "").trim().toLowerCase();
+  if (normalized.startsWith("conclu")) return "emerald";
+  return colorForSeed(normalized);
+}

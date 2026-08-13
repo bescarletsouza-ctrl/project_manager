@@ -20,7 +20,7 @@ import {
   type Section,
 } from "@/lib/asana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
-import { colorForSeed, softClass } from "@/lib/colors";
+import { colorForSectionName, softClass } from "@/lib/colors";
 import { useCurrentMember } from "@/lib/useAsana";
 import { cn } from "@/lib/utils";
 import {
@@ -451,7 +451,7 @@ function TasksPage() {
                     <span
                       className={cn(
                         "inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
-                        softClass(section ? colorForSeed(section.name.trim().toLowerCase()) : "slate"),
+                        softClass(section ? colorForSectionName(section.name) : "slate"),
                       )}
                     >
                       {section?.name ?? "Sem seção"}
