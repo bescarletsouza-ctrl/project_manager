@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
@@ -9,6 +9,13 @@ import { TaskPane } from "@/components/TaskPane";
 import { createTask, updateTask } from "@/lib/data";
 import { useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
+import {
+  commentsQuery,
+  mentionsQuery,
+  notifyStatusMilestone,
+  type Automation,
+} from "@/lib/asana";
+import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { isLate, isOpen, type Member, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -60,7 +67,8 @@ function bucketOf(task: Task): BucketId {
 
 function MyTasksPage() {
   const { tasks, members, projects, isLoading } = useWorkspaceData();
-  const { sections, fields, fieldValues, comments, dependencies, taskProjects, attachments } = useAsanaData();
+  const { sections, fields, fieldValues, comments, dependencies, taskProjects, automations, attachments } =
+    useAsanaData();
   const { member, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [pickedId, setPickedId] = useState("");
@@ -158,6 +166,8 @@ function MyTasksPage() {
                         task={t}
                         projects={projects}
                         members={members}
+                        automations={automations}
+                        currentMemberId={activeMember.id}
                         onOpen={() => setOpenTask(t)}
                       />
                     ))}
@@ -182,6 +192,7 @@ function MyTasksPage() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          automations={automations}
           attachments={attachments}
           currentMember={activeMember}
           currentUserId={userId}
@@ -197,14 +208,21 @@ function TaskRow({
   task,
   projects,
   members,
+  automations,
+  currentMemberId,
   onOpen,
 }: {
   task: Task;
   projects: { id: string; name: string; color: string }[];
   members: Member[];
+  automations: Automation[];
+  currentMemberId: string | null;
   onOpen: () => void;
 }) {
   const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
   const done = task.status === "concluido";
   const project = projects.find((p) => p.id === task.project_id) ?? null;
 
@@ -214,12 +232,36 @@ function TaskRow({
     onError: () => toast.error("Não foi possível atualizar."),
   });
 
+  /**
+   * Concluir/reabrir por aqui precisa rodar as automações do projeto/departamento
+   * da tarefa (ex.: "concluído → mover pra seção Concluído") — senão a tarefa
+   * ficava com status certo mas parada na seção errada no Quadro do projeto.
+   */
+  const toggle = useMutation({
+    mutationFn: async () => {
+      const nextStatus = done ? "em_andamento" : "concluido";
+      const { patch: autoPatch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status: nextStatus as Task["status"] },
+        { projectId: task.project_id, departmentId: task.department_id },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...autoPatch });
+      await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
+      const finalStatus = (autoPatch["status"] as Task["status"] | undefined) ?? nextStatus;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+    },
+    onSuccess: () => invalidateTaskAuto(),
+    onError: () => toast.error("Não foi possível atualizar."),
+  });
+
   return (
     <div className="group flex items-center gap-2 border-t border-border/60 px-3 py-1.5 hover:bg-secondary/40">
       <button
         type="button"
         aria-label={done ? "Reabrir tarefa" : "Concluir tarefa"}
-        onClick={() => patch.mutate({ status: done ? "em_andamento" : "concluido", completed: !done })}
+        onClick={() => toggle.mutate()}
         className={cn(
           "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
           done ? "border-success bg-success text-white" : "border-input text-transparent hover:border-success hover:text-success",

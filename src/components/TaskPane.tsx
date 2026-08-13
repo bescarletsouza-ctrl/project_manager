@@ -645,6 +645,7 @@ export function TaskPane({
                       comments={comments}
                       mentions={mentions}
                       currentMemberId={currentMember?.id ?? null}
+                      automations={automations}
                     />
                     <button
                       onClick={() => onOpenTask(s)}
@@ -848,21 +849,32 @@ function SubtaskCheck({
   comments,
   mentions,
   currentMemberId,
+  automations,
 }: {
   task: Task;
   comments: TaskComment[];
   mentions: { comment_id: string; member_id: string }[];
   currentMemberId: string | null;
+  automations: Automation[];
 }) {
-  const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      await updateTask(task.id, { status: nextStatus, completed: !done });
-      await notifyStatusMilestone(task, nextStatus, comments, mentions, currentMemberId);
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status: nextStatus as Task["status"] },
+        { projectId: task.project_id, departmentId: task.department_id },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });
+      await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
+      const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
     },
-    onSuccess: () => invalidateTask(),
+    onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
   });
   return (

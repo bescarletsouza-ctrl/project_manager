@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bits";
@@ -9,7 +9,15 @@ import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import { DeadlinePill, useSectionSortDir } from "@/components/project/ProjectViews";
 import { RichTextView } from "@/components/RichTextEditor";
-import { notifyAssignment } from "@/lib/asana";
+import {
+  automationsQuery,
+  commentsQuery,
+  mentionsQuery,
+  notifyAssignment,
+  notifyStatusMilestone,
+  type Automation,
+} from "@/lib/asana";
+import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { useCurrentMember } from "@/lib/useAsana";
 import { cn } from "@/lib/utils";
 import {
@@ -155,9 +163,19 @@ export const Route = createFileRoute("/_authenticated/tarefas")({
 function TasksPage() {
   const { tasks, projects, members, departments, clients, events, isLoading } = useWorkspaceData();
   const { member: currentMember } = useCurrentMember();
+  const automations = useQuery(automationsQuery).data ?? [];
+  const comments = useQuery(commentsQuery).data ?? [];
+  const mentions = useQuery(mentionsQuery).data ?? [];
   // Status muda dispara trigger de histórico (task_status_history) — inclui
-  // status_events no escopo.
-  const invalidateStatus = useInvalidate(["tasks", "status_events"]);
+  // status_events no escopo. Automação pode mexer em task_projects (mover
+  // seção de projeto), task_field_values (set_field) ou criar notificação.
+  const invalidateStatus = useInvalidate([
+    "tasks",
+    "status_events",
+    "task_projects",
+    "task_field_values",
+    "notifications",
+  ]);
   const invalidateTask = useInvalidate(["tasks"]);
   const [view, setView] = useViewPreference();
   const [selected, setSelected] = useState<Task | null>(null);
@@ -178,8 +196,32 @@ function TasksPage() {
   /** Ordenação por prazo de cada etapa do Quadro — mesmo mecanismo (e mesma seta) do Quadro de departamento/projeto. */
   const { dirOf: colSortDirOf, toggle: toggleColSort } = useSectionSortDir("tarefas-board");
 
+  /**
+   * Muda o status (drag no Kanban ou botões "Alterar status" no drawer).
+   * Precisa rodar as automações do projeto/departamento da tarefa — senão uma
+   * regra tipo "concluído → mover pra seção Concluído" nunca disparava por
+   * aqui, só quando a tarefa era concluída dentro do próprio Quadro do
+   * projeto/departamento.
+   */
   const move = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => updateTask(id, { status }),
+    mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
+      const task = tasks.find((t) => t.id === id);
+      if (!task) {
+        await updateTask(id, { status });
+        return;
+      }
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status },
+        { projectId: task.project_id, departmentId: task.department_id },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(id, { status, completed: status === "concluido", ...patch });
+      await applyAutomationMoves(id, { projectId: task.project_id, departmentId: task.department_id }, moves);
+      const finalStatus = (patch["status"] as TaskStatus | undefined) ?? status;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMember?.id ?? null);
+    },
     onSuccess: () => {
       invalidateStatus();
       toast.success("Status atualizado — movimentação registrada no histórico.");
@@ -347,7 +389,7 @@ function TasksPage() {
                       className="card-surface w-full cursor-pointer space-y-2 p-3 text-left transition-shadow hover:shadow-md"
                     >
                       <div className="flex items-start gap-2">
-                        <TaskCheck task={t} className="mt-0.5" currentMemberId={currentMember?.id ?? null} />
+                        <TaskCheck task={t} className="mt-0.5" currentMemberId={currentMember?.id ?? null} automations={automations} />
                         <p className={`text-sm font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</p>
                       </div>
                       <div className="flex flex-wrap gap-1">
@@ -387,7 +429,7 @@ function TasksPage() {
               {sorted.map((t) => (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                    <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} />
+                    <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} automations={automations} />
                   </td>
                   <td className={`max-w-[300px] truncate px-4 py-2 font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</td>
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
@@ -417,6 +459,7 @@ function TasksPage() {
           projects={projects}
           onStatus={(status) => move.mutate({ id: selected.id, status })}
           currentMemberId={currentMember?.id ?? null}
+          automations={automations}
         />
       )}
 
@@ -473,14 +516,16 @@ function TaskDrawer({
   projects,
   onStatus,
   currentMemberId,
+  automations,
 }: {
   task: Task;
   onClose: () => void;
   events: { id: string; task_id: string; from_status: string | null; to_status: string; entered_at: string; exited_at: string | null; duration_minutes: number | null }[];
   members: { id: string; name: string }[];
   projects: { id: string; name: string }[];
-  onStatus: (status: string) => void;
+  onStatus: (status: TaskStatus) => void;
   currentMemberId: string | null;
+  automations: Automation[];
 }) {
   const [editing, setEditing] = useState(false);
   const perStatus = timeInStatus(events, task);
@@ -496,7 +541,7 @@ function TaskDrawer({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2">
-            <TaskCheck task={task} className="mt-1" currentMemberId={currentMemberId} />
+            <TaskCheck task={task} className="mt-1" currentMemberId={currentMemberId} automations={automations} />
             <h2 className="text-lg font-semibold">{task.title}</h2>
           </div>
           <div className="flex items-center gap-3">

@@ -3,7 +3,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SectionTitle } from "@/components/ui-bits";
 import { updateTask, deleteTask } from "@/lib/data";
-import { commentsQuery, mentionsQuery, notifyAssignment, notifyStatusMilestone } from "@/lib/asana";
+import {
+  commentsQuery,
+  mentionsQuery,
+  notifyAssignment,
+  notifyStatusMilestone,
+  type Automation,
+} from "@/lib/asana";
+import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { PRIORITIES, PRIORITY_LABEL, type Task } from "@/lib/domain";
 import { useInvalidate } from "@/lib/useData";
 
@@ -150,23 +157,35 @@ export function TaskCheck({
   task,
   className = "",
   currentMemberId = null,
+  automations = [],
 }: {
   task: Task;
   className?: string;
   currentMemberId?: string | null;
+  /** Automações do projeto/departamento da tarefa — sem isso, concluir por aqui não move a tarefa (ex.: regra "concluído → seção Concluído"), diferente do toggle do Quadro/Lista. */
+  automations?: Automation[];
 }) {
-  const invalidateTask = useInvalidate(["tasks"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      await updateTask(task.id, { status: nextStatus });
-      await notifyStatusMilestone(task, nextStatus, comments, mentions, currentMemberId);
+      const { patch, applied, moves } = runAutomations(
+        automations,
+        "status_changed",
+        { ...task, status: nextStatus as Task["status"] },
+        { projectId: task.project_id, departmentId: task.department_id },
+      );
+      if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
+      await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });
+      await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
+      const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
     },
     onSuccess: () => {
-      invalidateTask();
+      invalidateTaskAuto();
       toast.success(done ? "Tarefa reaberta." : "Tarefa concluída.");
     },
     onError: () => toast.error("Não foi possível atualizar a tarefa."),
