@@ -15,7 +15,9 @@ import {
   mentionsQuery,
   notifyAssignment,
   notifyStatusMilestone,
+  sectionsQuery,
   type Automation,
+  type Section,
 } from "@/lib/asana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
 import { useCurrentMember } from "@/lib/useAsana";
@@ -51,10 +53,17 @@ const DEADLINE_SORT_RANK: Record<DeadlineStatus, number> = {
   cancelado: 5,
 };
 
-type SortKey = "title" | "project" | "assignee" | "status" | "complexity" | "due_date" | "deadline" | "leadtime";
+type SortKey = "title" | "project" | "assignee" | "section" | "complexity" | "due_date" | "deadline" | "leadtime";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
-function compareTasks(a: Task, b: Task, key: SortKey, projects: Project[], members: Member[]): number {
+function compareTasks(
+  a: Task,
+  b: Task,
+  key: SortKey,
+  projects: Project[],
+  members: Member[],
+  sections: Section[],
+): number {
   switch (key) {
     case "title":
       return a.title.localeCompare(b.title);
@@ -62,8 +71,8 @@ function compareTasks(a: Task, b: Task, key: SortKey, projects: Project[], membe
       return nameById(projects, a.project_id).localeCompare(nameById(projects, b.project_id));
     case "assignee":
       return nameById(members, a.assignee_id).localeCompare(nameById(members, b.assignee_id));
-    case "status":
-      return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+    case "section":
+      return nameById(sections, a.section_id).localeCompare(nameById(sections, b.section_id));
     case "complexity":
       return a.complexity - b.complexity;
     case "due_date":
@@ -166,6 +175,7 @@ function TasksPage() {
   const automations = useQuery(automationsQuery).data ?? [];
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
+  const sections = useQuery(sectionsQuery).data ?? [];
   // Status muda dispara trigger de histórico (task_status_history) — inclui
   // status_events no escopo. Automação pode mexer em task_projects (mover
   // seção de projeto), task_field_values (set_field) ou criar notificação.
@@ -248,8 +258,8 @@ function TasksPage() {
   const sorted = useMemo(() => {
     if (!sort) return filtered;
     const factor = sort.dir === "asc" ? 1 : -1;
-    return filtered.slice().sort((a, b) => compareTasks(a, b, sort.key, projects, members) * factor);
-  }, [filtered, sort, projects, members]);
+    return filtered.slice().sort((a, b) => compareTasks(a, b, sort.key, projects, members, sections) * factor);
+  }, [filtered, sort, projects, members, sections]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
@@ -418,7 +428,7 @@ function TasksPage() {
                 <SortableTh label="Tarefa" sortKey="title" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Projeto" sortKey="project" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Responsável" sortKey="assignee" sort={sort} onSort={toggleSort} />
-                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Seção" sortKey="section" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Pts" sortKey="complexity" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Prazo" sortKey="due_date" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Situação do prazo" sortKey="deadline" sort={sort} onSort={toggleSort} />
@@ -435,7 +445,7 @@ function TasksPage() {
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
                   <td className="px-4 py-2">{nameById(members, t.assignee_id)}</td>
                   <td className="px-4 py-2">
-                    <StatusBadge status={t.status as TaskStatus} />
+                    <Pill>{sections.find((s) => s.id === t.section_id)?.name ?? "Sem seção"}</Pill>
                   </td>
                   <td className="px-4 py-2 tabular-nums">{t.complexity}</td>
                   <td className={`px-4 py-2 ${isLate(t) ? "text-destructive" : ""}`}>{t.due_date ?? "—"}</td>
