@@ -1056,12 +1056,13 @@ function TaskCard({
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
+  const currentMemberName = members.find((m) => m.id === currentMemberId)?.name ?? null;
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto: grava sem passar pelas automações (só status/assignee do toggle rodam automação). */
   const fieldPatch = useMutation({
     mutationFn: async (patch: Partial<Task>) => {
       await updateTask(task.id, patch);
       if ("assignee_id" in patch) {
-        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId, currentMemberName);
       }
     },
     onSuccess: () => invalidateTask(),
@@ -1089,7 +1090,7 @@ function TaskCard({
       );
       // Automação pode ter trocado o status de novo (set_status) — avisa pelo que ficou de verdade.
       const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId, currentMemberName);
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),
@@ -1988,13 +1989,14 @@ function TaskRow({
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
+  const currentMemberName = members.find((m) => m.id === currentMemberId)?.name ?? null;
 
   /** Edição direta dos campos da coluna — mesmo padrão do TaskCells do projeto. */
   const fieldPatch = useMutation({
     mutationFn: async (patch: Partial<Task>) => {
       await updateTask(task.id, patch);
       if ("assignee_id" in patch) {
-        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId, currentMemberName);
       }
     },
     onSuccess: () => invalidateTask(),
@@ -2022,7 +2024,7 @@ function TaskRow({
         moves,
       );
       const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId, currentMemberName);
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),

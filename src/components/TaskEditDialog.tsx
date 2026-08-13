@@ -45,7 +45,12 @@ export function TaskEditDialog({
         priority: form.priority,
         due_date: form.due_date || null,
       });
-      await notifyAssignment(task, form.assignee_id || null, currentMemberId);
+      await notifyAssignment(
+        task,
+        form.assignee_id || null,
+        currentMemberId,
+        members.find((m) => m.id === currentMemberId)?.name ?? null,
+      );
     },
     onSuccess: () => {
       invalidateTask();
@@ -157,11 +162,13 @@ export function TaskCheck({
   task,
   className = "",
   currentMemberId = null,
+  currentMemberName = null,
   automations = [],
 }: {
   task: Task;
   className?: string;
   currentMemberId?: string | null;
+  currentMemberName?: string | null;
   /** Automações do projeto/departamento da tarefa — sem isso, concluir por aqui não move a tarefa (ex.: regra "concluído → seção Concluído"), diferente do toggle do Quadro/Lista. */
   automations?: Automation[];
 }) {
@@ -182,7 +189,7 @@ export function TaskCheck({
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId, currentMemberName);
     },
     onSuccess: () => {
       invalidateTaskAuto();

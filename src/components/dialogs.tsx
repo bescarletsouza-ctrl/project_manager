@@ -92,6 +92,7 @@ export function NewTaskDialog({
         { id: taskId, title, project_id: form.project_id || null },
         form.assignee_id || null,
         member?.id ?? null,
+        member?.name ?? null,
       );
     },
     onSuccess: () => {

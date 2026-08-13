@@ -53,6 +53,7 @@ import {
   updateProject,
 } from "@/lib/data";
 import { useInvalidate } from "@/lib/useData";
+import { useRealtimeSync } from "@/lib/useRealtime";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -118,6 +119,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [creating, setCreating] = useState<"task" | "project" | "portfolio" | "department" | null>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  // Mantém tasks/notificações/task_projects ao vivo pra todo o app autenticado
+  // — AppShell envolve todas as rotas logadas, então basta um assinante aqui.
+  useRealtimeSync();
 
   useEffect(() => setMobileOpen(false), [pathname]);
 

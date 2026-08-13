@@ -35,7 +35,7 @@ function WorkloadPage() {
     mutationFn: async ({ id, assignee_id }: { id: string; assignee_id: string }) => {
       await updateTask(id, { assignee_id });
       const task = tasks.find((t) => t.id === id);
-      if (task) await notifyAssignment(task, assignee_id, currentMember?.id ?? null);
+      if (task) await notifyAssignment(task, assignee_id, currentMember?.id ?? null, currentMember?.name ?? null);
     },
     onSuccess: () => {
       invalidateTask();

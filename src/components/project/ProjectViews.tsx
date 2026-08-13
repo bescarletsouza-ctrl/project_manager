@@ -348,11 +348,13 @@ function TaskToggle({
   task,
   automations,
   currentMemberId,
+  currentMemberName,
   size = "md",
 }: {
   task: Task;
   automations: Automation[];
   currentMemberId?: string | null;
+  currentMemberName?: string | null;
   size?: "sm" | "md";
 }) {
   const done = task.status === "concluido";
@@ -372,7 +374,7 @@ function TaskToggle({
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       // Automação pode ter trocado o status de novo (set_status) — avisa pelo que ficou de verdade, não pelo toggle.
       const finalStatus = (patch["status"] as Task["status"] | undefined) ?? status;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId ?? null);
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId ?? null, currentMemberName ?? null);
       return res;
     },
     onSuccess: () => invalidateTaskAuto(),
@@ -871,6 +873,7 @@ function useTaskPatch(
   automations: Automation[] = [],
   allSections: Section[] = [],
   currentMemberId: string | null = null,
+  currentMemberName: string | null = null,
 ) {
   // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
   // mas o de seção pode rodar automação (task_projects/task_field_values/
@@ -887,7 +890,7 @@ function useTaskPatch(
       }
       await updateTask(task.id, patch);
       if ("assignee_id" in patch) {
-        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId);
+        await notifyAssignment(task, patch.assignee_id ?? null, currentMemberId, currentMemberName);
       }
     },
     onSuccess: () => invalidate(),
@@ -1201,7 +1204,13 @@ function TaskCells({
    */
   sectionOf: (t: Task) => string;
 }) {
-  const patch = useTaskPatch(task, automations, allSections, currentMemberId);
+  const patch = useTaskPatch(
+    task,
+    automations,
+    allSections,
+    currentMemberId,
+    members.find((m) => m.id === currentMemberId)?.name ?? null,
+  );
   const has = (id: string) => columns.includes(id);
   /**
    * Seções oferecidas no dropdown: as do projeto ATUAL sempre entram — sem
@@ -1454,6 +1463,7 @@ function useTaskSelection(
   projectId: string,
   allSections: Section[],
   currentMemberId: string | null = null,
+  currentMemberName: string | null = null,
 ) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -1515,7 +1525,7 @@ function useTaskSelection(
           await updateTask(id, patch);
           if ("assignee_id" in patch) {
             const t = tasks.find((x) => x.id === id);
-            if (t) await notifyAssignment(t, patch.assignee_id ?? null, currentMemberId);
+            if (t) await notifyAssignment(t, patch.assignee_id ?? null, currentMemberId, currentMemberName);
           }
         }),
       ),
@@ -1638,7 +1648,12 @@ function TaskContextMenu({
       }
       await updateTask(task.id, input);
       if ("assignee_id" in input) {
-        await notifyAssignment(task, input.assignee_id ?? null, currentMemberId);
+        await notifyAssignment(
+          task,
+          input.assignee_id ?? null,
+          currentMemberId,
+          members.find((m) => m.id === currentMemberId)?.name ?? null,
+        );
       }
     },
     onSuccess: () => invalidatePatch(),
@@ -1941,7 +1956,13 @@ export function ListView({
     bulkMove,
     bulkPatch,
     bulkDelete,
-  } = useTaskSelection(tasks, projectId, allSections, currentMemberId);
+  } = useTaskSelection(
+    tasks,
+    projectId,
+    allSections,
+    currentMemberId,
+    members.find((m) => m.id === currentMemberId)?.name ?? null,
+  );
 
   // Sem "status" — o produto removeu essa coluna nativa; cada projeto usa
   // um campo personalizado como status próprio.
@@ -2172,7 +2193,12 @@ export function ListView({
                               className="size-3.5 shrink-0 cursor-pointer"
                             />
                           </span>
-                          <TaskToggle task={t} automations={automations} currentMemberId={currentMemberId} />
+                          <TaskToggle
+                            task={t}
+                            automations={automations}
+                            currentMemberId={currentMemberId}
+                            currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
+                          />
                           {editingTaskId === t.id ? (
                             <input
                               autoFocus
@@ -2284,7 +2310,13 @@ export function ListView({
                                   className="size-3.5 shrink-0 cursor-pointer"
                                 />
                               </span>
-                              <TaskToggle task={s} automations={automations} currentMemberId={currentMemberId} size="sm" />
+                              <TaskToggle
+                                task={s}
+                                automations={automations}
+                                currentMemberId={currentMemberId}
+                                currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
+                                size="sm"
+                              />
                               {editingTaskId === s.id ? (
                                 <input
                                   autoFocus
@@ -2563,7 +2595,13 @@ export function BoardView({
                         </div>
                       )}
                       <div className="flex items-start gap-2">
-                        <TaskToggle task={t} automations={automations} currentMemberId={currentMemberId} size="sm" />
+                        <TaskToggle
+                          task={t}
+                          automations={automations}
+                          currentMemberId={currentMemberId}
+                          currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
+                          size="sm"
+                        />
                         {editingTaskId === t.id ? (
                           <input
                             autoFocus

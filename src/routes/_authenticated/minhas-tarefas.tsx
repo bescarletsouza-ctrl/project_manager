@@ -250,7 +250,14 @@ function TaskRow({
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...autoPatch });
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       const finalStatus = (autoPatch["status"] as Task["status"] | undefined) ?? nextStatus;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+      await notifyStatusMilestone(
+        task,
+        finalStatus,
+        comments,
+        mentions,
+        currentMemberId,
+        members.find((m) => m.id === currentMemberId)?.name ?? null,
+      );
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),

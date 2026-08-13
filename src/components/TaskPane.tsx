@@ -177,7 +177,7 @@ export function TaskPane({
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra, completed: next === "concluido" });
         await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
-        await notifyStatusMilestone(task, next, comments, mentions, currentMember?.id ?? null);
+        await notifyStatusMilestone(task, next, comments, mentions, currentMember?.id ?? null, currentMember?.name ?? null);
         return;
       }
 
@@ -192,7 +192,7 @@ export function TaskPane({
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra });
         await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, auto.moves);
-        await notifyAssignment(task, next, currentMember?.id ?? null);
+        await notifyAssignment(task, next, currentMember?.id ?? null, currentMember?.name ?? null);
         return;
       }
 
@@ -645,6 +645,7 @@ export function TaskPane({
                       comments={comments}
                       mentions={mentions}
                       currentMemberId={currentMember?.id ?? null}
+                      currentMemberName={currentMember?.name ?? null}
                       automations={automations}
                     />
                     <button
@@ -849,12 +850,14 @@ function SubtaskCheck({
   comments,
   mentions,
   currentMemberId,
+  currentMemberName,
   automations,
 }: {
   task: Task;
   comments: TaskComment[];
   mentions: { comment_id: string; member_id: string }[];
   currentMemberId: string | null;
+  currentMemberName: string | null;
   automations: Automation[];
 }) {
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
@@ -872,7 +875,7 @@ function SubtaskCheck({
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
       const finalStatus = (patch["status"] as Task["status"] | undefined) ?? nextStatus;
-      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId);
+      await notifyStatusMilestone(task, finalStatus, comments, mentions, currentMemberId, currentMemberName);
     },
     onSuccess: () => invalidateTaskAuto(),
     onError: () => toast.error("Não foi possível atualizar."),

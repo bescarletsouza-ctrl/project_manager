@@ -334,6 +334,8 @@ export const notifyAssignment = (
   task: { id: string; title: string; project_id: string | null; assignee_id?: string | null },
   nextAssigneeId: string | null,
   actorMemberId: string | null,
+  /** Nome de quem fez a atribuição — sem isso a notificação não diz quem agiu. */
+  actorName: string | null = null,
 ) => {
   if (!nextAssigneeId || nextAssigneeId === task.assignee_id || nextAssigneeId === actorMemberId) {
     return Promise.resolve();
@@ -342,7 +344,7 @@ export const notifyAssignment = (
     {
       member_id: nextAssigneeId,
       kind: "atribuicao",
-      title: `Você foi designado para "${task.title}"`,
+      title: `${actorName ?? "Alguém"} te atribuiu "${task.title}"`,
       task_id: task.id,
       project_id: task.project_id,
       actor_member_id: actorMemberId,
@@ -365,6 +367,8 @@ export function notifyStatusMilestone(
   comments: { id: string; task_id: string }[],
   mentions: { comment_id: string; member_id: string }[],
   actorMemberId: string | null,
+  /** Nome de quem mudou o status — sem isso a notificação não diz quem agiu. */
+  actorName: string | null = null,
 ) {
   if (!STATUS_MILESTONES.has(nextStatus)) return Promise.resolve();
 
@@ -378,7 +382,7 @@ export function notifyStatusMilestone(
     [...targets].map((member_id) => ({
       member_id,
       kind: "status",
-      title: `"${task.title}" mudou para ${STATUS_META[nextStatus]?.label ?? nextStatus}`,
+      title: `${actorName ?? "Alguém"} mudou "${task.title}" para ${STATUS_META[nextStatus]?.label ?? nextStatus}`,
       task_id: task.id,
       project_id: task.project_id,
       actor_member_id: actorMemberId,
