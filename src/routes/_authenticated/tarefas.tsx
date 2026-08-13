@@ -20,7 +20,7 @@ import {
   type Section,
 } from "@/lib/asana";
 import { applyAutomationMoves, runAutomations } from "@/lib/automations";
-import { softClass } from "@/lib/colors";
+import { colorForSeed, softClass } from "@/lib/colors";
 import { useCurrentMember } from "@/lib/useAsana";
 import { cn } from "@/lib/utils";
 import {
@@ -448,7 +448,12 @@ function TasksPage() {
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
                   <td className="px-4 py-2">{nameById(members, t.assignee_id)}</td>
                   <td className="px-4 py-2">
-                    <span className={cn("inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", softClass(section?.color))}>
+                    <span
+                      className={cn(
+                        "inline-block rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
+                        softClass(section ? colorForSeed(section.name.trim().toLowerCase()) : "slate"),
+                      )}
+                    >
                       {section?.name ?? "Sem seção"}
                     </span>
                   </td>

@@ -50,3 +50,18 @@ const SOFT: Record<string, string> = {
 
 export const dotClass = (color?: string | null) => DOT[color ?? ""] ?? DOT["slate"]!;
 export const softClass = (color?: string | null) => SOFT[color ?? ""] ?? SOFT["slate"]!;
+
+/**
+ * Cor estavel derivada de um texto (ex.: nome de secao), pra quando o dado
+ * nao tem uma cor propria configurada -- toda secao nasce com color='slate'
+ * no banco (nao existe UI pra trocar isso), entao usar section.color direto
+ * fazia toda secao renderizar igual. Hash simples e determinístico: o mesmo
+ * nome sempre cai na mesma cor, em qualquer lista/sessao.
+ */
+export function colorForSeed(seed: string): ColorKey {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return COLOR_KEYS[Math.abs(hash) % COLOR_KEYS.length]!;
+}
