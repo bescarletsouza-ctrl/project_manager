@@ -122,6 +122,10 @@ export function TaskPane({
   const [description, setDescription] = useState(task.description ?? "");
   const [subtitle, setSubtitle] = useState("");
   const [comment, setComment] = useState("");
+  // Some ao enviar um comentário — entra no resetKey do composer pra forçar o
+  // RichTextEditor a resincronizar (limpar) o contentEditable, já que task.id
+  // sozinho não muda nesse momento e o componente só re-lê `value` no reset.
+  const [composerNonce, setComposerNonce] = useState(0);
   const [depTarget, setDepTarget] = useState("");
 
   // ao trocar de tarefa dentro do painel, recarrega os campos de texto
@@ -273,6 +277,7 @@ export function TaskPane({
     },
     onSuccess: () => {
       setComment("");
+      setComposerNonce((n) => n + 1);
       invalidateComments();
     },
     onError: () => toast.error("Não foi possível comentar."),
@@ -804,7 +809,7 @@ export function TaskPane({
             <Avatar name={currentMember?.name} color={currentMember?.avatar_color} src={currentMember?.avatar_url} />
             <div className="min-w-0 flex-1">
               <RichTextEditor
-                resetKey={task.id}
+                resetKey={`${task.id}:${composerNonce}`}
                 value={comment}
                 onChange={setComment}
                 placeholder="Escreva um comentário. Use @nome para mencionar alguém."

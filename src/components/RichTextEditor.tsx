@@ -258,7 +258,16 @@ export function RichTextEditor({
 
   /**
    * Troca o "@parcial" digitado por um span destacado (mesma cor do comentário),
-   * dividindo o nó de texto em: antes / span da menção / espaço / depois.
+   * dividindo o nó de texto em: antes / span da menção / depois.
+   *
+   * O "depois" (espaço + resto do texto original) precisa ser UM nó de texto
+   * só, com o cursor plantado DENTRO dele (não numa fronteira entre nós vazios
+   * e o span). Com dois nós separados — um só de espaço e um vazio pro resto —
+   * o cursor ficava numa fronteira entre nós; sem um nó de texto de verdade
+   * pra digitar, o navegador (Chrome/Edge) herdava o estilo do span da menção
+   * pro que fosse digitado a seguir, pintando o texto normal como se fosse
+   * menção. Um nó de texto único e não-vazio, com o cursor plantado dentro
+   * dele via setStart/setEnd, elimina essa ambiguidade.
    */
   const pickMention = (member: { id: string; name: string }) => {
     const sel = window.getSelection();
@@ -276,18 +285,16 @@ export function RichTextEditor({
     const mentionSpan = document.createElement("span");
     mentionSpan.className = "mention";
     mentionSpan.textContent = `@${member.name}`;
-    const spaceNode = document.createTextNode(" ");
-    const afterNode = document.createTextNode(text.slice(range.startOffset));
+    const afterNode = document.createTextNode(` ${text.slice(range.startOffset)}`);
     const beforeNode = document.createTextNode(text.slice(0, atIndex));
 
     parent.replaceChild(afterNode, node);
-    parent.insertBefore(spaceNode, afterNode);
-    parent.insertBefore(mentionSpan, spaceNode);
+    parent.insertBefore(mentionSpan, afterNode);
     parent.insertBefore(beforeNode, mentionSpan);
 
     const newRange = document.createRange();
-    newRange.setStartAfter(spaceNode);
-    newRange.setEndAfter(spaceNode);
+    newRange.setStart(afterNode, 1);
+    newRange.setEnd(afterNode, 1);
     sel.removeAllRanges();
     sel.addRange(newRange);
     setMentionQuery(null);
