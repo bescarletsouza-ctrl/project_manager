@@ -955,6 +955,12 @@ export function InlineText({
   className?: string;
 }) {
   const [draft, setDraft] = useState(value);
+  // Resincroniza quando o valor muda por fora (outra edição, automação,
+  // refetch) — sem isso, draft ficava congelado no valor do primeiro
+  // render pra sempre: a célula mostrava vazio/desatualizado mesmo com o
+  // dado certo já salvo (ex.: prazo definido pelo TaskPane não aparecia
+  // na coluna "Data de fim" da lista até um remount completo da linha).
+  useEffect(() => setDraft(value), [value]);
   return (
     <input
       aria-label={label}
