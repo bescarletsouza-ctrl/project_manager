@@ -55,8 +55,17 @@ function dayLabel(iso: string) {
 
 function InboxPage() {
   const { tasks, members, projects, isLoading } = useWorkspaceData();
-  const { notifications, sections, fields, fieldValues, comments, dependencies, taskProjects, attachments } =
-    useAsanaData();
+  const {
+    notifications,
+    sections,
+    fields,
+    fieldValues,
+    comments,
+    dependencies,
+    taskProjects,
+    attachments,
+    automations,
+  } = useAsanaData();
   const { member, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [tab, setTab] = useState<Tab>("unread");
@@ -280,6 +289,7 @@ function InboxPage() {
           projects={projects}
           taskProjects={taskProjects}
           attachments={attachments}
+          automations={automations}
           currentMember={member}
           currentUserId={userId}
           onClose={() => setOpenTask(null)}
