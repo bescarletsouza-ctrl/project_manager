@@ -12,6 +12,7 @@ import {
   notificationsQuery,
   portfoliosQuery,
   sectionsQuery,
+  taskDepartmentsQuery,
   taskProjectsQuery,
 } from "./asana";
 import { membersQuery } from "./data";
@@ -28,6 +29,7 @@ export function useAsanaData() {
   const mentions = useQuery(mentionsQuery);
   const notifications = useQuery(notificationsQuery);
   const taskProjects = useQuery(taskProjectsQuery);
+  const taskDepartments = useQuery(taskDepartmentsQuery);
   const automations = useQuery(automationsQuery);
   const attachments = useQuery(attachmentsQuery);
 
@@ -41,6 +43,7 @@ export function useAsanaData() {
     mentions: mentions.data ?? [],
     notifications: notifications.data ?? [],
     taskProjects: taskProjects.data ?? [],
+    taskDepartments: taskDepartments.data ?? [],
     automations: automations.data ?? [],
     attachments: attachments.data ?? [],
     isLoading:
@@ -51,6 +54,7 @@ export function useAsanaData() {
       fieldValues.isLoading ||
       comments.isLoading ||
       taskProjects.isLoading ||
+      taskDepartments.isLoading ||
       automations.isLoading ||
       notifications.isLoading ||
       attachments.isLoading,

@@ -26,7 +26,7 @@ import { SectionsChart } from "@/components/dashboard/SectionsChart";
 import { TaskPane } from "@/components/TaskPane";
 import { requireRole } from "@/lib/access";
 import { StatCard, SectionTitle, StatusBadge, Pill, Bar } from "@/components/ui-bits";
-import { useWorkspaceData, nameById, departmentIdsOf, useInvalidate } from "@/lib/useData";
+import { useWorkspaceData, nameById, departmentIdsOf, taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import { updateTask } from "@/lib/data";
 import {
@@ -116,6 +116,7 @@ function Dashboard() {
     comments,
     dependencies,
     taskProjects,
+    taskDepartments,
     automations,
     attachments,
   } = useAsanaData();
@@ -167,9 +168,9 @@ function Dashboard() {
   const byDepartment = departments.map((d) => ({
     id: d.id,
     name: d.name,
-    abertas: filtered.filter((t) => t.department_id === d.id && isOpen(t)).length,
-    concluidas: filtered.filter((t) => t.department_id === d.id && isDone(t)).length,
-    naoPlanejadas: filtered.filter((t) => t.department_id === d.id && t.unplanned).length,
+    abertas: filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(d.id) && isOpen(t)).length,
+    concluidas: filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(d.id) && isDone(t)).length,
+    naoPlanejadas: filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(d.id) && t.unplanned).length,
   }));
 
   const evolution = buildEvolution(done);
@@ -356,7 +357,7 @@ function Dashboard() {
                   if (row.payload) {
                     openSelection(
                       `Abertas — ${row.payload.name}`,
-                      filtered.filter((t) => t.department_id === row.payload!.id && isOpen(t)),
+                      filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(row.payload!.id) && isOpen(t)),
                     );
                   }
                 }}
@@ -372,7 +373,7 @@ function Dashboard() {
                   if (row.payload) {
                     openSelection(
                       `Concluídas — ${row.payload.name}`,
-                      filtered.filter((t) => t.department_id === row.payload!.id && isDone(t)),
+                      filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(row.payload!.id) && isDone(t)),
                     );
                   }
                 }}
@@ -388,7 +389,7 @@ function Dashboard() {
                   if (row.payload) {
                     openSelection(
                       `Fora do planejamento — ${row.payload.name}`,
-                      filtered.filter((t) => t.department_id === row.payload!.id && t.unplanned),
+                      filtered.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(row.payload!.id) && t.unplanned),
                     );
                   }
                 }}
@@ -545,6 +546,7 @@ function Dashboard() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          taskDepartments={taskDepartments}
           automations={automations}
           attachments={attachments}
           currentMember={currentMember}

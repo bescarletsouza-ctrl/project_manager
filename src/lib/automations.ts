@@ -1,9 +1,13 @@
 import {
+  addTaskToDepartment,
   linkTaskToProject,
+  removeTaskFromDepartment,
   setFieldValue,
+  setTaskDepartmentSection,
   setTaskProjectSection,
   type Automation,
   type Section,
+  type TaskDepartment,
   type TaskProject,
 } from "./asana";
 import { updateTask } from "./data";
@@ -195,6 +199,41 @@ export function runAutomations(
 }
 
 /**
+ * Mesma coisa que runAutomations, mas roda uma vez por CADA departamento da
+ * tarefa (principal + extras) e mescla o resultado — sem isso, os ~15 pontos
+ * que hoje montam { projectId, departmentId: task.department_id } só
+ * enxergam o departamento principal, nunca os extras. `departmentIds` é a
+ * lista completa (ver taskDepartmentIdsOf); vazia = tarefa sem departamento
+ * (roda uma vez só, com departmentId null, igual hoje).
+ */
+export function runAutomationsForTask(
+  automations: Automation[],
+  event: AutoEvent,
+  task: Partial<Task> & { fieldChange?: FieldChange },
+  extra: { projectId?: string | null; departmentIds: string[] },
+) {
+  const patch: Record<string, unknown> = {};
+  const applied: string[] = [];
+  const moves: AutoMoves = { addProjectIds: [], fieldValues: [] };
+  let notify = false;
+  const containers = extra.departmentIds.length
+    ? extra.departmentIds.map((departmentId) => ({ projectId: extra.projectId, departmentId }))
+    : [{ projectId: extra.projectId, departmentId: null }];
+
+  for (const container of containers) {
+    const r = runAutomations(automations, event, task, container);
+    Object.assign(patch, r.patch);
+    applied.push(...r.applied);
+    moves.addProjectIds.push(...r.moves.addProjectIds);
+    moves.fieldValues.push(...r.moves.fieldValues);
+    if (r.moves.projectSectionId !== undefined) moves.projectSectionId = r.moves.projectSectionId;
+    if (r.moves.moveToProjectId) moves.moveToProjectId = r.moves.moveToProjectId;
+    notify = notify || r.notify;
+  }
+  return { patch, notify, applied, moves };
+}
+
+/**
  * Executa as movimentações de seção/projeto resultantes das automações.
  * Assinatura aceita o mesmo container do runAutomations. Para departamento,
  * setTaskProjectSection não é chamado (task_projects é vínculo projeto—
@@ -242,12 +281,17 @@ export async function moveTaskSection(
   targetSectionId: string | null,
   allSections: Section[],
   automations: Automation[],
+  taskDepartments: TaskDepartment[],
 ): Promise<{ applied: string[] }> {
   const target = targetSectionId ? allSections.find((s) => s.id === targetSectionId) : null;
   const isProjectTarget = target?.project_id != null;
   const isDeptTarget = target?.department_id != null;
+  // Departamento SECUNDÁRIO = a seção escolhida é de um departamento da
+  // tarefa diferente do principal (task.department_id). Determina isso pelo
+  // department_id da seção ALVO, sem precisar de flag explícita do chamador.
+  const isSecondaryDeptTarget = isDeptTarget && target!.department_id !== task.department_id;
 
-  const container = { projectId: task.project_id, departmentId: task.department_id };
+  const container = { projectId: task.project_id, departmentId: target?.department_id ?? task.department_id };
   const { patch, applied, moves } = runAutomations(
     automations,
     "section_changed",
@@ -269,13 +313,21 @@ export async function moveTaskSection(
     // espelhar aqui também mantém a coluna "Seção" da grade e o TaskPane
     // mostrando o valor certo sem depender do vínculo task_projects.
     if (!task.department_id) await updateTask(task.id, { section_id: targetSectionId });
+  } else if (isSecondaryDeptTarget) {
+    // Departamento SECUNDÁRIO: só a linha dele em task_departments muda.
+    // Nunca toca tasks.section_id nem a linha de outro departamento — é isso
+    // que garante que mudar a seção aqui não interfere nos demais.
+    await setTaskDepartmentSection(task.id, target!.department_id!, targetSectionId);
   } else {
     await updateTask(task.id, { section_id: targetSectionId });
   }
   if (Object.keys(patch).length > 0) await updateTask(task.id, patch);
   await applyAutomationMoves(task.id, container, moves);
 
-  if (task.project_id && task.department_id && target) {
+  // Espelhar por nome entre projeto e departamento só faz sentido pro par
+  // PRINCIPAL da tarefa — fazer isso pra um departamento secundário
+  // quebraria justamente o isolamento que essa função existe pra garantir.
+  if (!isSecondaryDeptTarget && task.project_id && task.department_id && target) {
     const sameName = (s: Section) => s.name.trim().toLowerCase() === target.name.trim().toLowerCase();
     if (isDeptTarget) {
       const mirror = allSections.find((s) => s.project_id === task.project_id && sameName(s));
@@ -302,10 +354,14 @@ export async function moveTaskSection(
    * retrabalho, mesmo sem a tarefa nunca ter passado por "concluído" — usa o
    * mesmo contador (reopen_count) que o retrabalho por status já usa, pra
    * cair automaticamente em todo relatório que já lê esse campo. Compara
-   * pelo NOME da seção de origem (task.section_id, valor antes deste move),
-   * não pelo id — a seção de aprovação pode ser de projeto ou departamento.
+   * pelo NOME da seção de origem — pra departamento secundário, a origem é a
+   * seção QUE ESTAVA na linha dele em task_departments (não task.section_id,
+   * que é de outro departamento/projeto e não tem nada a ver com este move).
    */
-  const source = task.section_id ? allSections.find((s) => s.id === task.section_id) : null;
+  const previousSectionId = isSecondaryDeptTarget
+    ? (taskDepartments.find((td) => td.task_id === task.id && td.department_id === target!.department_id)?.section_id ?? null)
+    : task.section_id;
+  const source = previousSectionId ? allSections.find((s) => s.id === previousSectionId) : null;
   if (source && target && isApprovalSectionName(source.name) && isReworkSectionName(target.name)) {
     await updateTask(task.id, { reopen_count: task.reopen_count + 1 });
   }
@@ -357,4 +413,32 @@ export async function setTaskDepartment(
 
   const link = taskProjects.find((l) => l.task_id === task.id && l.project_id === task.project_id);
   await updateTask(task.id, { department_id: null, section_id: link?.section_id ?? task.section_id });
+}
+
+/**
+ * Ajusta os departamentos SECUNDÁRIOS da tarefa (a lista extra, fora do
+ * principal em task.department_id) pro conjunto final desejado — calcula o
+ * diff (add/remove) em vez do chamador emitir uma chamada por item, pro
+ * multi-select do TaskPane/grade poder marcar/desmarcar direto.
+ *
+ * Não mexe no departamento PRINCIPAL nem na seção dele — se ele aparecer em
+ * `nextDepartmentIds`, é ignorado aqui (setTaskDepartment continua sendo o
+ * único caminho pra trocar o principal). Um departamento extra novo entra
+ * sem seção (fica órfão, cai na 1ª seção do departamento — mesma regra que
+ * já vale hoje pro principal).
+ */
+export async function setTaskSecondaryDepartments(
+  task: Task,
+  nextDepartmentIds: string[],
+  taskDepartments: TaskDepartment[],
+): Promise<void> {
+  const current = taskDepartments.filter((td) => td.task_id === task.id);
+  const currentIds = new Set(current.map((td) => td.department_id));
+  const wantIds = new Set(nextDepartmentIds.filter((id) => id !== task.department_id));
+
+  const toRemove = current.filter((td) => !wantIds.has(td.department_id));
+  const toAdd = [...wantIds].filter((id) => !currentIds.has(id));
+
+  await Promise.all(toRemove.map((td) => removeTaskFromDepartment(td.id)));
+  await Promise.all(toAdd.map((id) => addTaskToDepartment(task.id, id, null)));
 }

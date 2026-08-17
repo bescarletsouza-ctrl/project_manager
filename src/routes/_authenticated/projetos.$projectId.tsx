@@ -235,8 +235,18 @@ function ProjectDetail() {
     "task_field_values",
   ]);
   const { projects, tasks, members, departments, isLoading } = useWorkspaceData();
-  const { sections, fields, fieldValues, comments, dependencies, portfolios, taskProjects, automations, attachments } =
-    useAsanaData();
+  const {
+    sections,
+    fields,
+    fieldValues,
+    comments,
+    dependencies,
+    portfolios,
+    taskProjects,
+    taskDepartments,
+    automations,
+    attachments,
+  } = useAsanaData();
   const { member: currentMember, userId } = useCurrentMember();
   const { role, isAdmin } = useAccessRole();
 
@@ -356,6 +366,7 @@ function ProjectDetail() {
     onOpenTask: (t: Task) => setOpenTask(t),
     currentMemberId: currentMember?.id ?? null,
     taskProjects,
+    taskDepartments,
   };
 
   const showToolbar = view === "list" || view === "board" || view === "calendar" || view === "timeline";
@@ -619,6 +630,7 @@ function ProjectDetail() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          taskDepartments={taskDepartments}
           automations={automations}
           attachments={attachments}
           currentMember={currentMember}

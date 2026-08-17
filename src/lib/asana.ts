@@ -104,6 +104,15 @@ export type TaskProject = {
   position: number;
 };
 
+/** Departamento EXTRA de uma tarefa (fora do principal em tasks.department_id), com sua própria seção — mesmo espírito de TaskProject. */
+export type TaskDepartment = {
+  id: string;
+  task_id: string;
+  department_id: string;
+  section_id: string | null;
+  position: number;
+};
+
 /**
  * Automação: uma regra "quando X, faz Y" pertencente a UM container
  * (projeto XOR departamento). O CHECK do banco (automations_container_ck)
@@ -206,6 +215,11 @@ export const notificationsQuery = queryOptions({
 export const taskProjectsQuery = queryOptions({
   queryKey: ["task_projects"],
   queryFn: () => all<TaskProject>("task_projects", "position"),
+});
+
+export const taskDepartmentsQuery = queryOptions({
+  queryKey: ["task_departments"],
+  queryFn: () => all<TaskDepartment>("task_departments", "position"),
 });
 
 export const automationsQuery = queryOptions({
@@ -452,6 +466,21 @@ export const setTaskProjectSection = (task_id: string, project_id: string, secti
   run(
     table("task_projects").upsert({ task_id, project_id, section_id } as never, {
       onConflict: "task_id,project_id",
+    }),
+  );
+
+/* ---------------- tarefas em vários departamentos ---------------- */
+
+export const addTaskToDepartment = (task_id: string, department_id: string, section_id: string | null = null) =>
+  run(table("task_departments").insert({ task_id, department_id, section_id } as never));
+
+export const removeTaskFromDepartment = (id: string) => run(table("task_departments").delete().eq("id", id));
+
+/** Upsert (mesma razão do setTaskProjectSection): sem linha prévia, um update simples não gravaria nada. */
+export const setTaskDepartmentSection = (task_id: string, department_id: string, section_id: string | null) =>
+  run(
+    table("task_departments").upsert({ task_id, department_id, section_id } as never, {
+      onConflict: "task_id,department_id",
     }),
   );
 

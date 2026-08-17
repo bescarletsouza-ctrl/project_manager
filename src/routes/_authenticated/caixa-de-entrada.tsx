@@ -63,6 +63,7 @@ function InboxPage() {
     comments,
     dependencies,
     taskProjects,
+    taskDepartments,
     attachments,
     automations,
   } = useAsanaData();
@@ -288,6 +289,7 @@ function InboxPage() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          taskDepartments={taskDepartments}
           attachments={attachments}
           automations={automations}
           currentMember={member}

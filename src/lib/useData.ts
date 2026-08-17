@@ -57,6 +57,15 @@ export function departmentIdsOf(
   return member.department_id ? [member.department_id, ...extras] : extras;
 }
 
+/** IDs de departamento da tarefa: o principal (department_id) + os extras (task_departments). Mesmo padrão de departmentIdsOf. */
+export function taskDepartmentIdsOf(
+  task: { id: string; department_id: string | null },
+  taskDepartments: { task_id: string; department_id: string }[],
+): string[] {
+  const extras = taskDepartments.filter((td) => td.task_id === task.id).map((td) => td.department_id);
+  return task.department_id ? [task.department_id, ...extras] : extras;
+}
+
 export function nameById<T extends { id: string; name: string }>(list: T[], id?: string | null) {
   if (!id) return "—";
   return list.find((x) => x.id === id)?.name ?? "—";

@@ -9,10 +9,11 @@ import {
   notifyAssignment,
   notifyStatusMilestone,
   type Automation,
+  type TaskDepartment,
 } from "@/lib/asana";
-import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, runAutomationsForTask } from "@/lib/automations";
 import { PRIORITIES, PRIORITY_LABEL, type Task } from "@/lib/domain";
-import { useInvalidate } from "@/lib/useData";
+import { taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
 
 export function TaskEditDialog({
   task,
@@ -164,6 +165,7 @@ export function TaskCheck({
   currentMemberId = null,
   currentMemberName = null,
   automations = [],
+  taskDepartments = [],
 }: {
   task: Task;
   className?: string;
@@ -171,6 +173,7 @@ export function TaskCheck({
   currentMemberName?: string | null;
   /** Automações do projeto/departamento da tarefa — sem isso, concluir por aqui não move a tarefa (ex.: regra "concluído → seção Concluído"), diferente do toggle do Quadro/Lista. */
   automations?: Automation[];
+  taskDepartments?: TaskDepartment[];
 }) {
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
@@ -179,11 +182,11 @@ export function TaskCheck({
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      const { patch, applied, moves } = runAutomations(
+      const { patch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: nextStatus as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });

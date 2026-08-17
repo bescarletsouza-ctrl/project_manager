@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { Pill, RowMenu } from "@/components/ui-bits";
-import { DeadlinePill, TagPicker } from "@/components/project/ProjectViews";
+import { DeadlinePill, DepartmentPicker, TagPicker } from "@/components/project/ProjectViews";
 import { RichTextEditor, RichTextView } from "@/components/RichTextEditor";
 import { fetchLinkPreview } from "@/lib/linkPreview";
 import {
@@ -28,7 +28,7 @@ import {
   taskFieldActivityQuery,
   updateTask,
 } from "@/lib/data";
-import { useInvalidate } from "@/lib/useData";
+import { taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
 import {
   FIELD_TYPE_LABEL,
   addDependency,
@@ -54,10 +54,17 @@ import {
   type TaskAttachment,
   type TaskComment,
   type TaskDependency,
+  type TaskDepartment,
   type TaskFieldValue,
   type TaskProject,
 } from "@/lib/asana";
-import { applyAutomationMoves, moveTaskSection, runAutomations, setTaskDepartment } from "@/lib/automations";
+import {
+  applyAutomationMoves,
+  moveTaskSection,
+  runAutomationsForTask,
+  setTaskDepartment,
+  setTaskSecondaryDepartments,
+} from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -83,6 +90,7 @@ type Props = {
   dependencies: TaskDependency[];
   projects?: Project[];
   taskProjects?: TaskProject[];
+  taskDepartments?: TaskDepartment[];
   automations?: Automation[];
   attachments?: TaskAttachment[];
   currentMember: Member | null;
@@ -106,6 +114,7 @@ export function TaskPane({
   dependencies,
   projects = [],
   taskProjects = [],
+  taskDepartments = [],
   automations = [],
   attachments = [],
   currentMember,
@@ -172,11 +181,11 @@ export function TaskPane({
 
       if ("status" in input) {
         const next = input["status"] as Task["status"];
-        const auto = runAutomations(
+        const auto = runAutomationsForTask(
           automations,
           "status_changed",
           { ...task, status: next },
-          { projectId: task.project_id, departmentId: task.department_id },
+          { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
         );
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra, completed: next === "concluido" });
@@ -187,11 +196,11 @@ export function TaskPane({
 
       if ("assignee_id" in input) {
         const next = (input["assignee_id"] as string | null) || null;
-        const auto = runAutomations(
+        const auto = runAutomationsForTask(
           automations,
           "assignee_changed",
           { ...task, assignee_id: next },
-          { projectId: task.project_id, departmentId: task.department_id },
+          { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
         );
         Object.assign(extra, auto.patch);
         await updateTask(task.id, { ...input, ...extra });
@@ -202,7 +211,7 @@ export function TaskPane({
 
       if ("section_id" in input) {
         const next = (input["section_id"] as string | null) || null;
-        await moveTaskSection(task, next, sections, automations);
+        await moveTaskSection(task, next, sections, automations, taskDepartments);
         return;
       }
 
@@ -217,6 +226,13 @@ export function TaskPane({
     onSuccess: invalidatePatch,
     onError: (e: unknown) =>
       toast.error(`Não foi possível salvar: ${(e as { message?: string })?.message ?? "erro"}`),
+  });
+
+  const invalidateTaskDepartments = useInvalidate(["task_departments"]);
+  const patchExtraDepartments = useMutation({
+    mutationFn: (ids: string[]) => setTaskSecondaryDepartments(task, ids, taskDepartments),
+    onSuccess: () => invalidateTaskDepartments(),
+    onError: () => toast.error("Não foi possível salvar os departamentos."),
   });
 
   const remove = useMutation({
@@ -312,10 +328,11 @@ export function TaskPane({
    * Antes filtrávamos só por project_id, então tarefa vinda do dept
    * mostrava dropdown vazio (bug do print).
    */
+  const taskDeptIds = taskDepartmentIdsOf(task, taskDepartments);
   const projectSections = sections.filter(
     (s) =>
       (task.project_id != null && s.project_id === task.project_id) ||
-      (task.department_id != null && s.department_id === task.department_id),
+      (s.department_id != null && taskDeptIds.includes(s.department_id)),
   );
   const candidates = tasks.filter((t) => t.id !== task.id && t.project_id === task.project_id);
   const blockedOpen = blockers.some((d) => {
@@ -476,19 +493,13 @@ export function TaskPane({
               </div>
 
               <FieldLabel>Departamento</FieldLabel>
-              <select
-                aria-label="Departamento"
-                className={ctl}
-                value={task.department_id ?? ""}
-                onChange={(e) => patch.mutate({ department_id: e.target.value || null })}
-              >
-                <option value="">Sem departamento</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+              <DepartmentPicker
+                departments={departments}
+                primaryId={task.department_id}
+                extraIds={taskDepartmentIdsOf(task, taskDepartments).filter((id) => id !== task.department_id)}
+                onChangePrimary={(id) => patch.mutate({ department_id: id })}
+                onChangeExtras={(ids) => patchExtraDepartments.mutate(ids)}
+              />
 
               <FieldLabel>Prazo</FieldLabel>
               <div className="flex items-center gap-2">
@@ -542,6 +553,10 @@ export function TaskPane({
               {projectSections.length > 0 && (
                 <>
                   <FieldLabel>Seção</FieldLabel>
+                  {/* Com mais de um departamento, cada um tem sua própria seção (task_departments) —
+                      o valor mostrado aqui é sempre o do departamento PRINCIPAL; mudar seção de um
+                      departamento extra funciona (grava certo, via moveTaskSection), mas pra ver/editar
+                      a seção de um extra especificamente use o quadro daquele departamento. */}
                   <select
                     aria-label="Seção"
                     className={ctl}
@@ -549,11 +564,30 @@ export function TaskPane({
                     onChange={(e) => patch.mutate({ section_id: e.target.value || null })}
                   >
                     <option value="">Sem seção</option>
-                    {projectSections.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
+                    {taskDeptIds.length > 1
+                      ? departments
+                          .filter((d) => taskDeptIds.includes(d.id))
+                          .map((d) => {
+                            const opts = projectSections.filter((s) => s.department_id === d.id);
+                            if (!opts.length) return null;
+                            return (
+                              <optgroup key={d.id} label={d.id === task.department_id ? `${d.name} (principal)` : d.name}>
+                                {opts.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })
+                      : null}
+                    {(taskDeptIds.length <= 1 ? projectSections : projectSections.filter((s) => s.department_id == null)).map(
+                      (s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </>
               )}
@@ -658,6 +692,7 @@ export function TaskPane({
                       currentMemberId={currentMember?.id ?? null}
                       currentMemberName={currentMember?.name ?? null}
                       automations={automations}
+                      taskDepartments={taskDepartments}
                     />
                     <button
                       onClick={() => onOpenTask(s)}
@@ -863,6 +898,7 @@ function SubtaskCheck({
   currentMemberId,
   currentMemberName,
   automations,
+  taskDepartments,
 }: {
   task: Task;
   comments: TaskComment[];
@@ -870,17 +906,18 @@ function SubtaskCheck({
   currentMemberId: string | null;
   currentMemberName: string | null;
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
 }) {
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      const { patch, applied, moves } = runAutomations(
+      const { patch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: nextStatus as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...patch });

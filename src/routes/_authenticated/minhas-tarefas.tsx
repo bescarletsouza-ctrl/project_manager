@@ -7,15 +7,16 @@ import { Avatar } from "@/components/Avatar";
 import { EmptyState, Field } from "@/components/ui-bits";
 import { TaskPane } from "@/components/TaskPane";
 import { createTask, updateTask } from "@/lib/data";
-import { useInvalidate, useWorkspaceData } from "@/lib/useData";
+import { taskDepartmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import {
   commentsQuery,
   mentionsQuery,
   notifyStatusMilestone,
   type Automation,
+  type TaskDepartment,
 } from "@/lib/asana";
-import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, runAutomationsForTask } from "@/lib/automations";
 import { isLate, isOpen, type Member, type Task } from "@/lib/domain";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -67,8 +68,17 @@ function bucketOf(task: Task): BucketId {
 
 function MyTasksPage() {
   const { tasks, members, projects, isLoading } = useWorkspaceData();
-  const { sections, fields, fieldValues, comments, dependencies, taskProjects, automations, attachments } =
-    useAsanaData();
+  const {
+    sections,
+    fields,
+    fieldValues,
+    comments,
+    dependencies,
+    taskProjects,
+    taskDepartments,
+    automations,
+    attachments,
+  } = useAsanaData();
   const { member, userId } = useCurrentMember();
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [pickedId, setPickedId] = useState("");
@@ -167,6 +177,7 @@ function MyTasksPage() {
                         projects={projects}
                         members={members}
                         automations={automations}
+                        taskDepartments={taskDepartments}
                         currentMemberId={activeMember.id}
                         onOpen={() => setOpenTask(t)}
                       />
@@ -192,6 +203,7 @@ function MyTasksPage() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          taskDepartments={taskDepartments}
           automations={automations}
           attachments={attachments}
           currentMember={activeMember}
@@ -209,6 +221,7 @@ function TaskRow({
   projects,
   members,
   automations,
+  taskDepartments,
   currentMemberId,
   onOpen,
 }: {
@@ -216,6 +229,7 @@ function TaskRow({
   projects: { id: string; name: string; color: string }[];
   members: Member[];
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   currentMemberId: string | null;
   onOpen: () => void;
 }) {
@@ -240,11 +254,11 @@ function TaskRow({
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      const { patch: autoPatch, applied, moves } = runAutomations(
+      const { patch: autoPatch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: nextStatus as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(task.id, { status: nextStatus, completed: nextStatus === "concluido", ...autoPatch });

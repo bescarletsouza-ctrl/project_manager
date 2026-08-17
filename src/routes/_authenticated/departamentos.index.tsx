@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { Building2, Pencil, Trash2 } from "lucide-react";
 import { EmptyState, Pill, RowMenu, SectionTitle } from "@/components/ui-bits";
 import { createDepartment, deleteDepartment, departmentsQuery, updateDepartment } from "@/lib/data";
-import { sectionsQuery } from "@/lib/asana";
-import { useInvalidate, useWorkspaceData } from "@/lib/useData";
+import { sectionsQuery, taskDepartmentsQuery } from "@/lib/asana";
+import { taskDepartmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useQuery } from "@tanstack/react-query";
 import { dotClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,7 @@ function DepartmentsPage() {
   const invalidateDeptCascade = useInvalidate(["departments", "sections", "tasks"]);
   const { departments, members, tasks, projects, isLoading } = useWorkspaceData();
   const sections = useQuery(sectionsQuery).data ?? [];
+  const taskDepartments = useQuery(taskDepartmentsQuery).data ?? [];
   const [form, setForm] = useState({ name: "", color: "blue" });
   const [editing, setEditing] = useState<{ id: string; name: string; color: string } | null>(null);
 
@@ -79,7 +80,7 @@ function DepartmentsPage() {
 
   /** Estatísticas exibidas no cartão de cada departamento. */
   function stats(deptId: string) {
-    const dTasks = tasks.filter((t) => t.department_id === deptId);
+    const dTasks = tasks.filter((t) => taskDepartmentIdsOf(t, taskDepartments).includes(deptId));
     const done = dTasks.filter((t) => t.status === "concluido").length;
     const dSections = sections.filter((s) => s.department_id === deptId);
     return {

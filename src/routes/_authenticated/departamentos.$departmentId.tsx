@@ -50,11 +50,18 @@ import {
   notifyStatusMilestone,
   updateSection,
   type Automation,
+  type TaskDepartment,
 } from "@/lib/asana";
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
-import { departmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
+import { departmentIdsOf, taskDepartmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
-import { applyAutomationMoves, moveTaskSection, runAutomations } from "@/lib/automations";
+import {
+  applyAutomationMoves,
+  moveTaskSection,
+  runAutomations,
+  runAutomationsForTask,
+  setTaskSecondaryDepartments,
+} from "@/lib/automations";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
@@ -134,6 +141,19 @@ const LIST_COLUMN_DEFAULT_WIDTH: Record<string, number> = {
 const listColumnDefaultWidth = (id: string) => LIST_COLUMN_DEFAULT_WIDTH[id] ?? 100;
 type ColumnPrefs = Record<ColumnKey, boolean>;
 
+/**
+ * Seção "de verdade" da tarefa NESTE departamento: se for o principal
+ * (task.department_id), é o campo nativo (task.section_id) — igual sempre
+ * foi. Se for um departamento SECUNDÁRIO, a seção vive na linha dele em
+ * task_departments — nunca no campo nativo, que pertence a outro
+ * container. É essa separação que garante que mover a seção aqui não
+ * mexe na seção que a tarefa tem nos outros departamentos.
+ */
+function sectionIdInDept(task: Task, departmentId: string, taskDepartments: TaskDepartment[]): string | null {
+  if (task.department_id === departmentId) return task.section_id;
+  return taskDepartments.find((td) => td.task_id === task.id && td.department_id === departmentId)?.section_id ?? null;
+}
+
 function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey, on: boolean) => void] {
   const storageKey = `fluxo:dept-cols:${departmentId}`;
   const defaults: ColumnPrefs = COLUMN_KEYS.reduce(
@@ -189,6 +209,7 @@ function DepartmentDetail() {
     comments,
     dependencies,
     taskProjects,
+    taskDepartments,
     automations: allAutomations,
     attachments,
   } = useAsanaData();
@@ -287,11 +308,12 @@ function DepartmentDetail() {
   const moveTask = useMutation({
     mutationFn: async (input: { taskId: string; sectionId: string | null }) => {
       const task = tasks.find((t) => t.id === input.taskId);
-      if (!task || task.section_id === input.sectionId) {
+      if (!task) {
         await updateTask(input.taskId, { section_id: input.sectionId });
         return;
       }
-      const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
+      if (sectionIdInDept(task, departmentId, taskDepartments) === input.sectionId) return;
+      const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations, taskDepartments);
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
     },
     onSuccess: () => invalidateTaskAuto(),
@@ -308,8 +330,8 @@ function DepartmentDetail() {
   const reorderDeptTasks = useMutation({
     mutationFn: async (input: { ids: string[]; sectionId: string | null; movedId: string }) => {
       const task = tasks.find((t) => t.id === input.movedId);
-      if (task && task.section_id !== input.sectionId) {
-        const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
+      if (task && sectionIdInDept(task, departmentId, taskDepartments) !== input.sectionId) {
+        const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations, taskDepartments);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       }
       await Promise.all(input.ids.map((id, i) => updateTask(id, { position: i })));
@@ -410,9 +432,11 @@ function DepartmentDetail() {
     reorderSections.mutate(ids);
   };
   /** Sem o filtro De/Até (que é por prazo) — o Calendário navega por mês e quer ver tudo que tem prazo. */
-  const deptTasksAll = tasks.filter((t) => t.department_id === departmentId && !t.parent_task_id);
+  const deptTasksAll = tasks.filter(
+    (t) => taskDepartmentIdsOf(t, taskDepartments).includes(departmentId) && !t.parent_task_id,
+  );
   const deptTasks = tasks.filter((t) => {
-    if (t.department_id !== departmentId || t.parent_task_id) return false;
+    if (!taskDepartmentIdsOf(t, taskDepartments).includes(departmentId) || t.parent_task_id) return false;
     // Filtra por PRAZO (due_date), não por data de criação — sem isso, De/Até
     // parecia não fazer nada quando as tarefas foram todas criadas no mesmo
     // período mas com prazos espalhados. Sem prazo não entra quando o filtro
@@ -448,9 +472,10 @@ function DepartmentDetail() {
    * primeira seção real. Só há coluna virtual "Sem seção" quando o
    * departamento ainda não tem nenhuma seção (caso contrário, não há UI).
    */
-  const orphanTasks = deptTasks.filter(
-    (t) => !t.section_id || !deptSectionIds.has(t.section_id),
-  );
+  const orphanTasks = deptTasks.filter((t) => {
+    const sid = sectionIdInDept(t, departmentId, taskDepartments);
+    return !sid || !deptSectionIds.has(sid);
+  });
   const firstSectionId = sections[0]?.id ?? null;
   const boardSections =
     sections.length > 0
@@ -679,6 +704,7 @@ function DepartmentDetail() {
           onAddTask={(sectionId, title) => quickAddTask.mutate({ title, sectionId })}
           onOpenTask={(t) => setOpenTask(t)}
           automations={automations}
+          taskDepartments={taskDepartments}
           departmentId={departmentId}
           dragTaskId={dragTaskId}
           onTaskDragStart={(id) => setDragTaskId(id)}
@@ -751,10 +777,10 @@ function DepartmentDetail() {
                 ? orphanTasks
                 : isFirst
                   ? [
-                      ...deptTasks.filter((t) => t.section_id === section.id),
+                      ...deptTasks.filter((t) => sectionIdInDept(t, departmentId, taskDepartments) === section.id),
                       ...orphanTasks,
                     ]
-                  : deptTasks.filter((t) => t.section_id === section.id)
+                  : deptTasks.filter((t) => sectionIdInDept(t, departmentId, taskDepartments) === section.id)
             )
               .slice()
               .sort(
@@ -851,6 +877,7 @@ function DepartmentDetail() {
                       onOpen={() => setOpenTask(t)}
                       onDropOnTask={() => dropTaskOn(t.id, section.id || null, listIds)}
                       automations={automations}
+                      taskDepartments={taskDepartments}
                       departmentId={departmentId}
                       columnPrefs={columnPrefs}
                       currentMemberId={currentMember?.id ?? null}
@@ -891,6 +918,7 @@ function DepartmentDetail() {
           dependencies={dependencies}
           projects={projects}
           taskProjects={taskProjects}
+          taskDepartments={taskDepartments}
           automations={automations}
           attachments={attachments}
           currentMember={currentMember}
@@ -1030,6 +1058,7 @@ function TaskCard({
   onOpen,
   onDropOnTask,
   automations,
+  taskDepartments,
   departmentId,
   columnPrefs,
   currentMemberId,
@@ -1052,6 +1081,7 @@ function TaskCard({
    * TaskPane, que era o único caminho que já rodava).
    */
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   departmentId: string;
   currentMemberId: string | null;
 }) {
@@ -1074,11 +1104,11 @@ function TaskCard({
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = task.status === "concluido" ? "em_andamento" : "concluido";
-      const { patch, applied, moves } = runAutomations(
+      const { patch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: nextStatus as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(task.id, {
@@ -1723,6 +1753,7 @@ function ListPanel({
   onAddTask,
   onOpenTask,
   automations,
+  taskDepartments,
   departmentId,
   dragTaskId,
   onTaskDragStart,
@@ -1761,6 +1792,7 @@ function ListPanel({
   /** Automações + dept p/ o toggle "concluir" rodar as regras — mesma
    *  máquina do card do Quadro, reusada aqui. */
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   departmentId: string;
   /** Drag de tarefa entre blocos da Lista (equivalente ao do Quadro). */
   dragTaskId: string | null;
@@ -1798,10 +1830,10 @@ function ListPanel({
             ? orphanTasks
             : isFirst
               ? [
-                  ...deptTasks.filter((t) => t.section_id === section.id),
+                  ...deptTasks.filter((t) => sectionIdInDept(t, departmentId, taskDepartments) === section.id),
                   ...orphanTasks,
                 ]
-              : deptTasks.filter((t) => t.section_id === section.id)
+              : deptTasks.filter((t) => sectionIdInDept(t, departmentId, taskDepartments) === section.id)
         )
           .slice()
           .sort((a, b) =>
@@ -1878,6 +1910,7 @@ function ListPanel({
                     members={members}
                     project={projects.find((p) => p.id === t.project_id)}
                     automations={automations}
+                    taskDepartments={taskDepartments}
                     departmentId={departmentId}
                     dragging={dragTaskId === t.id}
                     onDragStart={() => onTaskDragStart(t.id)}
@@ -1958,6 +1991,7 @@ function TaskRow({
   members,
   project,
   automations,
+  taskDepartments,
   departmentId,
   dragging,
   onDragStart,
@@ -1971,6 +2005,7 @@ function TaskRow({
   members: Member[];
   project: { id: string; name: string; color: string } | undefined;
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   departmentId: string;
   dragging: boolean;
   onDragStart: () => void;
@@ -2009,11 +2044,11 @@ function TaskRow({
   const toggle = useMutation({
     mutationFn: async () => {
       const nextStatus = done ? "em_andamento" : "concluido";
-      const { patch, applied, moves } = runAutomations(
+      const { patch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: nextStatus as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id ?? departmentId },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(task.id, {

@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bits";
-import { useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
+import { taskDepartmentIdsOf, useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import { DeadlinePill, useSectionSortDir } from "@/components/project/ProjectViews";
@@ -16,12 +16,14 @@ import {
   notifyAssignment,
   notifyStatusMilestone,
   sectionsQuery,
+  taskDepartmentsQuery,
   taskProjectsQuery,
   type Automation,
   type Section,
+  type TaskDepartment,
   type TaskProject,
 } from "@/lib/asana";
-import { applyAutomationMoves, runAutomations } from "@/lib/automations";
+import { applyAutomationMoves, runAutomationsForTask } from "@/lib/automations";
 import { colorForSectionName, softClass } from "@/lib/colors";
 import { useCurrentMember } from "@/lib/useAsana";
 import { cn } from "@/lib/utils";
@@ -199,6 +201,7 @@ function TasksPage() {
   const mentions = useQuery(mentionsQuery).data ?? [];
   const sections = useQuery(sectionsQuery).data ?? [];
   const taskProjects = useQuery(taskProjectsQuery).data ?? [];
+  const taskDepartments = useQuery(taskDepartmentsQuery).data ?? [];
   // Status muda dispara trigger de histórico (task_status_history) — inclui
   // status_events no escopo. Automação pode mexer em task_projects (mover
   // seção de projeto), task_field_values (set_field) ou criar notificação.
@@ -243,11 +246,11 @@ function TasksPage() {
         await updateTask(id, { status });
         return;
       }
-      const { patch, applied, moves } = runAutomations(
+      const { patch, applied, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status },
-        { projectId: task.project_id, departmentId: task.department_id },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
       await updateTask(id, { status, completed: status === "concluido", ...patch });
@@ -424,7 +427,7 @@ function TasksPage() {
                       className="card-surface w-full cursor-pointer space-y-2 p-3 text-left transition-shadow hover:shadow-md"
                     >
                       <div className="flex items-start gap-2">
-                        <TaskCheck task={t} className="mt-0.5" currentMemberId={currentMember?.id ?? null} currentMemberName={currentMember?.name ?? null} automations={automations} />
+                        <TaskCheck task={t} className="mt-0.5" currentMemberId={currentMember?.id ?? null} currentMemberName={currentMember?.name ?? null} automations={automations} taskDepartments={taskDepartments} />
                         <p className={`text-sm font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</p>
                       </div>
                       <div className="flex flex-wrap gap-1">
@@ -466,7 +469,7 @@ function TasksPage() {
                 return (
                 <tr key={t.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => setSelected(t)}>
                   <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                    <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} currentMemberName={currentMember?.name ?? null} automations={automations} />
+                    <TaskCheck task={t} currentMemberId={currentMember?.id ?? null} currentMemberName={currentMember?.name ?? null} automations={automations} taskDepartments={taskDepartments} />
                   </td>
                   <td className={`max-w-[300px] truncate px-4 py-2 font-medium ${t.status === "concluido" ? "text-muted-foreground line-through" : ""}`}>{t.title}</td>
                   <td className="px-4 py-2">{nameById(projects, t.project_id)}</td>
@@ -505,6 +508,7 @@ function TasksPage() {
           onStatus={(status) => move.mutate({ id: selected.id, status })}
           currentMemberId={currentMember?.id ?? null}
           automations={automations}
+          taskDepartments={taskDepartments}
         />
       )}
 
@@ -562,6 +566,7 @@ function TaskDrawer({
   onStatus,
   currentMemberId,
   automations,
+  taskDepartments,
 }: {
   task: Task;
   onClose: () => void;
@@ -571,6 +576,7 @@ function TaskDrawer({
   onStatus: (status: TaskStatus) => void;
   currentMemberId: string | null;
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
 }) {
   const [editing, setEditing] = useState(false);
   const perStatus = timeInStatus(events, task);
@@ -592,6 +598,7 @@ function TaskDrawer({
               currentMemberId={currentMemberId}
               currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
               automations={automations}
+              taskDepartments={taskDepartments}
             />
             <h2 className="text-lg font-semibold">{task.title}</h2>
           </div>

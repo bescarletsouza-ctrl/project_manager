@@ -14,8 +14,10 @@ import {
 } from "recharts";
 import { SectionTitle, StatCard } from "@/components/ui-bits";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
+import { useQuery } from "@tanstack/react-query";
+import { taskDepartmentsQuery } from "@/lib/asana";
 import { requireRole } from "@/lib/access";
-import { useWorkspaceData, nameById } from "@/lib/useData";
+import { useWorkspaceData, nameById, taskDepartmentIdsOf } from "@/lib/useData";
 import { cn } from "@/lib/utils";
 import {
   STATUS_META,
@@ -66,6 +68,7 @@ function daysAgoIso(days: number) {
 
 function ReportsPage() {
   const { tasks: allTasks, members, departments, projects, clients, events, isLoading } = useWorkspaceData();
+  const taskDepartments = useQuery(taskDepartmentsQuery).data ?? [];
   const [group, setGroup] = useState<Group>("colaborador");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -101,9 +104,13 @@ function ReportsPage() {
     [group, members, departments, projects, clients],
   );
 
+  /** Departamento é multi-valorado (task_departments); os outros grupos continuam 1-pra-1. */
+  const matchesDim = (t: Task, dim: { id: string; key: "assignee_id" | "department_id" | "project_id" | "client_id" }) =>
+    dim.key === "department_id" ? taskDepartmentIdsOf(t, taskDepartments).includes(dim.id) : t[dim.key] === dim.id;
+
   const rows = useMemo(() => {
     return dims.map((d) => {
-      const list = tasks.filter((t) => t[d.key] === d.id);
+      const list = tasks.filter((t) => matchesDim(t, d));
       const done = list.filter(isDone);
       const onTime = done.filter((t) => !isLate(t));
       const unplannedTasks = list.filter((t) => t.unplanned);
@@ -125,12 +132,12 @@ function ReportsPage() {
         unplannedTasks,
       };
     });
-  }, [dims, tasks]);
+  }, [dims, tasks, taskDepartments]);
 
   const openRow = (dimId: string, name: string) => {
     const dim = dims.find((d) => d.id === dimId);
     if (!dim) return;
-    openSelection(`Tarefas — ${name}`, tasks.filter((t) => t[dim.key] === dimId));
+    openSelection(`Tarefas — ${name}`, tasks.filter((t) => matchesDim(t, dim)));
   };
 
   const openUnplannedRow = (dimId: string, name: string) => {

@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { deleteTask, duplicateSection, duplicateTask, tagsQuery, tasksQuery, updateTask } from "@/lib/data";
-import { useInvalidate } from "@/lib/useData";
+import { taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -52,10 +52,17 @@ import {
   type Automation,
   type CustomField,
   type Section,
+  type TaskDepartment,
   type TaskFieldValue,
   type TaskProject,
 } from "@/lib/asana";
-import { applyAutomationMoves, moveTaskSection, runAutomations, setTaskDepartment } from "@/lib/automations";
+import {
+  applyAutomationMoves,
+  moveTaskSection,
+  runAutomationsForTask,
+  setTaskDepartment,
+  setTaskSecondaryDepartments,
+} from "@/lib/automations";
 import {
   DEADLINE_STATUS_LABEL,
   DEADLINE_STATUS_TONE,
@@ -97,6 +104,8 @@ export type ViewProps = {
   currentMemberId: string | null;
   /** Vínculos de multi-projeto — precisa pra preservar a posição no projeto ao mudar o departamento de uma tarefa (ver setTaskDepartment). */
   taskProjects: TaskProject[];
+  /** Departamentos extras da tarefa (além do principal) — ver taskDepartmentIdsOf. */
+  taskDepartments: TaskDepartment[];
 };
 
 /* ------------------------- utilidades ------------------------- */
@@ -165,6 +174,7 @@ export function useSectionMutations(
   automations: Automation[],
   tasks: Task[],
   allSections: Section[],
+  taskDepartments: TaskDepartment[],
 ) {
   const invalidateSections = useInvalidate(["sections"]);
   const invalidateSectionsCascade = useInvalidate(["sections", "tasks"]);
@@ -260,7 +270,7 @@ export function useSectionMutations(
         // Só dispara automação/espelhamento quando a seção realmente muda —
         // reordenar dentro da mesma seção não é um "section_changed" de verdade.
         if (task && input.sectionChanged) {
-          const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations);
+          const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations, taskDepartments);
           if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
         } else {
           await setTaskProjectSection(input.movedId, projectId, input.sectionId);
@@ -350,12 +360,14 @@ function useDnd({
 function TaskToggle({
   task,
   automations,
+  taskDepartments,
   currentMemberId,
   currentMemberName,
   size = "md",
 }: {
   task: Task;
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   currentMemberId?: string | null;
   currentMemberName?: string | null;
   size?: "sm" | "md";
@@ -367,11 +379,11 @@ function TaskToggle({
   const toggle = useMutation({
     mutationFn: async () => {
       const status = done ? "em_andamento" : "concluido";
-      const { patch, moves } = runAutomations(
+      const { patch, moves } = runAutomationsForTask(
         automations,
         "status_changed",
         { ...task, status: status as Task["status"] },
-        { projectId: task.project_id, departmentId: task.department_id },
+        { projectId: task.project_id, departmentIds: taskDepartmentIdsOf(task, taskDepartments) },
       );
       const res = await updateTask(task.id, { status, completed: !done, ...patch });
       await applyAutomationMoves(task.id, { projectId: task.project_id, departmentId: task.department_id }, moves);
@@ -878,6 +890,7 @@ function useTaskPatch(
   currentMemberId: string | null = null,
   currentMemberName: string | null = null,
   taskProjects: TaskProject[] = [],
+  taskDepartments: TaskDepartment[] = [],
 ) {
   // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
   // mas o de seção pode rodar automação (task_projects/task_field_values/
@@ -888,7 +901,7 @@ function useTaskPatch(
       // Seção muda de container/agrupamento — precisa gravar no lugar certo
       // (projeto vs. departamento) e rodar a automação "quando a seção muda".
       if ("section_id" in patch && patch.section_id !== task.section_id) {
-        const { applied } = await moveTaskSection(task, patch.section_id ?? null, allSections, automations);
+        const { applied } = await moveTaskSection(task, patch.section_id ?? null, allSections, automations, taskDepartments);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
         return;
       }
@@ -997,7 +1010,7 @@ export function CustomFieldCell({
   value: string;
   /** Passar undefined quando não quiser rodar automações (contextos legados). */
   automations?: Automation[];
-  container?: { projectId?: string | null; departmentId?: string | null };
+  container?: { projectId?: string | null; departmentIds?: string[] };
 }) {
   const allTasks = useQuery(tasksQuery).data ?? [];
   const invalidate = useInvalidate(["task_field_values", "tasks", "task_projects", "notifications"]);
@@ -1008,15 +1021,15 @@ export function CustomFieldCell({
       if (automations && container && newValue !== null) {
         const task = allTasks.find((t) => t.id === taskId);
         if (task) {
-          const { patch, applied, moves } = runAutomations(
+          const { patch, applied, moves } = runAutomationsForTask(
             automations,
             "field_changed",
             { ...task, fieldChange: { fieldId: field.id, value: newValue } },
-            container,
+            { projectId: container.projectId, departmentIds: container.departmentIds ?? [] },
           );
           if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
           if (Object.keys(patch).length > 0) await updateTask(taskId, patch);
-          await applyAutomationMoves(taskId, container, moves);
+          await applyAutomationMoves(taskId, { projectId: container.projectId, departmentId: container.departmentIds?.[0] ?? null }, moves);
         }
       }
     },
@@ -1083,42 +1096,71 @@ export function AssigneePicker({
   );
 }
 
-/** Departamento na lista: bolinha colorida + nome, mesmo padrão do responsável. */
-function DepartmentPicker({
+/**
+ * Departamentos da tarefa: o PRINCIPAL (marca "Principal", corresponde a
+ * task.department_id) mais quantos EXTRAS quiser (task_departments) — clique
+ * marca/desmarca, mesmo padrão de checkbox do TagPicker. Clicar no principal
+ * de novo limpa (mesmo comportamento de antes, quando só existia um). Clicar
+ * num departamento ainda sem principal define ele como principal — só depois
+ * disso os próximos cliques viram extras.
+ */
+export function DepartmentPicker({
   departments,
-  value,
-  onChange,
+  primaryId,
+  extraIds,
+  onChangePrimary,
+  onChangeExtras,
 }: {
   departments: Department[];
-  value: string | null;
-  onChange: (id: string | null) => void;
+  primaryId: string | null;
+  extraIds: string[];
+  onChangePrimary: (id: string | null) => void;
+  onChangeExtras: (ids: string[]) => void;
 }) {
-  const current = departments.find((d) => d.id === value) ?? null;
+  const allIds = [primaryId, ...extraIds].filter((id): id is string => !!id);
+  const selected = departments.filter((d) => allIds.includes(d.id));
+  const toggle = (id: string) => {
+    if (id === primaryId) {
+      onChangePrimary(null);
+      return;
+    }
+    if (!primaryId) {
+      onChangePrimary(id);
+      return;
+    }
+    onChangeExtras(extraIds.includes(id) ? extraIds.filter((x) => x !== id) : [...extraIds, id]);
+  };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`Departamento: ${current?.name ?? "nenhum"}`}
-        title={current?.name ?? "Sem departamento"}
+        aria-label={`Departamentos: ${selected.map((d) => d.name).join(", ") || "nenhum"}`}
+        title={selected.map((d) => d.name).join(", ") || "Sem departamento"}
         onClick={(e) => e.stopPropagation()}
         className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-secondary"
       >
-        <span className={cn("size-2 shrink-0 rounded-full", dotClass(current?.color))} />
-        <span className="min-w-0 truncate text-sm">{current?.name ?? "—"}</span>
+        <span className={cn("size-2 shrink-0 rounded-full", dotClass(selected[0]?.color))} />
+        <span className="min-w-0 truncate text-sm">
+          {selected.length > 0 ? selected.map((d) => d.name).join(", ") : "—"}
+        </span>
         <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
-        <DropdownMenuItem onSelect={() => onChange(null)} className="gap-2 text-sm">
-          <span className="size-2 shrink-0 rounded-full bg-slate-400" />
-          <span className="text-muted-foreground">Sem departamento</span>
-          {!current && <Check className="ml-auto size-3.5" />}
-        </DropdownMenuItem>
+        {departments.length === 0 && (
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum departamento cadastrado.</p>
+        )}
         {departments.map((d) => (
-          <DropdownMenuItem key={d.id} onSelect={() => onChange(d.id)} className="gap-2 text-sm">
+          <DropdownMenuCheckboxItem
+            key={d.id}
+            checked={allIds.includes(d.id)}
+            onCheckedChange={() => toggle(d.id)}
+            onSelect={(e) => e.preventDefault()}
+            className="gap-2 text-sm"
+          >
             <span className={cn("size-2 shrink-0 rounded-full", dotClass(d.color))} />
             <span className="truncate">{d.name}</span>
-            {d.id === value && <Check className="ml-auto size-3.5 shrink-0" />}
-          </DropdownMenuItem>
+            {d.id === primaryId && <span className="ml-auto text-[10px] text-muted-foreground">Principal</span>}
+          </DropdownMenuCheckboxItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1202,6 +1244,7 @@ function TaskCells({
   currentMemberId,
   sectionOf,
   taskProjects,
+  taskDepartments,
 }: {
   task: Task;
   columns: string[];
@@ -1221,6 +1264,7 @@ function TaskCells({
    */
   sectionOf: (t: Task) => string;
   taskProjects: TaskProject[];
+  taskDepartments: TaskDepartment[];
 }) {
   const patch = useTaskPatch(
     task,
@@ -1229,7 +1273,14 @@ function TaskCells({
     currentMemberId,
     members.find((m) => m.id === currentMemberId)?.name ?? null,
     taskProjects,
+    taskDepartments,
   );
+  const invalidateTaskDepartments = useInvalidate(["task_departments"]);
+  const patchExtraDepartments = useMutation({
+    mutationFn: (ids: string[]) => setTaskSecondaryDepartments(task, ids, taskDepartments),
+    onSuccess: () => invalidateTaskDepartments(),
+    onError: () => toast.error("Não foi possível salvar os departamentos."),
+  });
   const has = (id: string) => columns.includes(id);
   /**
    * Seções oferecidas no dropdown: as do projeto ATUAL sempre entram — sem
@@ -1328,8 +1379,10 @@ function TaskCells({
           "sm",
           <DepartmentPicker
             departments={departments}
-            value={task.department_id}
-            onChange={(id) => patch.mutate({ department_id: id })}
+            primaryId={task.department_id}
+            extraIds={taskDepartmentIdsOf(task, taskDepartments).filter((id) => id !== task.department_id)}
+            onChangePrimary={(id) => patch.mutate({ department_id: id })}
+            onChangeExtras={(ids) => patchExtraDepartments.mutate(ids)}
           />,
         )}
       {has("assignee") &&
@@ -1640,6 +1693,7 @@ function TaskContextMenu({
   sections,
   allSections,
   automations,
+  taskDepartments,
   onOpen,
   onRenameStart,
   children,
@@ -1650,6 +1704,7 @@ function TaskContextMenu({
   sections: Section[];
   allSections: Section[];
   automations: Automation[];
+  taskDepartments: TaskDepartment[];
   onOpen: () => void;
   onRenameStart?: () => void;
   children: React.ReactNode;
@@ -1661,7 +1716,7 @@ function TaskContextMenu({
   const patch = useMutation({
     mutationFn: async (input: Partial<Task>) => {
       if ("section_id" in input && input.section_id !== task.section_id) {
-        const { applied } = await moveTaskSection(task, input.section_id ?? null, allSections, automations);
+        const { applied } = await moveTaskSection(task, input.section_id ?? null, allSections, automations, taskDepartments);
         if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
         return;
       }
@@ -1939,9 +1994,10 @@ export function ListView({
   onOpenTask,
   currentMemberId,
   taskProjects,
+  taskDepartments,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations, tasks, allSections);
+    useSectionMutations(projectId, project, automations, tasks, allSections, taskDepartments);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -2177,6 +2233,7 @@ export function ListView({
                           sections={sections}
                           allSections={allSections}
                           automations={automations}
+                          taskDepartments={taskDepartments}
                           onOpen={() => onOpenTask(t)}
                           onRenameStart={() => setEditingTaskId(t.id)}
                           currentMemberId={currentMemberId}
@@ -2216,6 +2273,7 @@ export function ListView({
                           <TaskToggle
                             task={t}
                             automations={automations}
+                            taskDepartments={taskDepartments}
                             currentMemberId={currentMemberId}
                             currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
                           />
@@ -2287,12 +2345,12 @@ export function ListView({
                                 field={f}
                                 value={valueOf(t.id, f.id)}
                                 automations={automations}
-                                container={{ projectId, departmentId: t.department_id }}
+                                container={{ projectId, departmentIds: taskDepartmentIdsOf(t, taskDepartments) }}
                               />
                             </span>
                           ))}
                           <span onClick={(e) => e.stopPropagation()} className="contents">
-                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} />
+                            <TaskCells task={t} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} taskDepartments={taskDepartments} />
                           </span>
                           <DeleteTaskButton task={t} className="opacity-0 group-hover:opacity-100 focus:opacity-100" />
                         </div>
@@ -2307,6 +2365,7 @@ export function ListView({
                               sections={sections}
                               allSections={allSections}
                               automations={automations}
+                              taskDepartments={taskDepartments}
                               onOpen={() => onOpenTask(s)}
                               onRenameStart={() => setEditingTaskId(s.id)}
                               currentMemberId={currentMemberId}
@@ -2333,6 +2392,7 @@ export function ListView({
                               <TaskToggle
                                 task={s}
                                 automations={automations}
+                                taskDepartments={taskDepartments}
                                 currentMemberId={currentMemberId}
                                 currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
                                 size="sm"
@@ -2375,7 +2435,7 @@ export function ListView({
                                 <DeadlinePill task={s} />
                               </span>
                               <span onClick={(e) => e.stopPropagation()} className="contents">
-                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} />
+                                <TaskCells task={s} columns={columns} members={members} departments={departments} sections={sections} allSections={allSections} automations={automations} cols={cols} currentMemberId={currentMemberId} sectionOf={sectionOf} taskProjects={taskProjects} taskDepartments={taskDepartments} />
                               </span>
                               <DeleteTaskButton task={s} className="opacity-0 group-hover:opacity-100" />
                             </div>
@@ -2421,9 +2481,10 @@ export function BoardView({
   sectionOf,
   onOpenTask,
   currentMemberId,
+  taskDepartments,
 }: ViewProps) {
   const { addSection, renameSection, removeSection, dupSection, addTask, reorderTasks, reorderSections } =
-    useSectionMutations(projectId, project, automations, tasks, allSections);
+    useSectionMutations(projectId, project, automations, tasks, allSections, taskDepartments);
   // Mesma preferência da Lista (mesma chave de localStorage): por padrão as
   // colunas ordenam por data de criação (mais nova em cima); arrastar uma
   // tarefa dentro da coluna liga a ordem manual, que passa a respeitar
@@ -2583,6 +2644,7 @@ export function BoardView({
                       sections={sections}
                       allSections={allSections}
                       automations={automations}
+                      taskDepartments={taskDepartments}
                       onOpen={() => onOpenTask(t)}
                       onRenameStart={() => setEditingTaskId(t.id)}
                       currentMemberId={currentMemberId}
@@ -2618,6 +2680,7 @@ export function BoardView({
                         <TaskToggle
                           task={t}
                           automations={automations}
+                          taskDepartments={taskDepartments}
                           currentMemberId={currentMemberId}
                           currentMemberName={members.find((m) => m.id === currentMemberId)?.name ?? null}
                           size="sm"
@@ -2844,8 +2907,9 @@ export function CalendarView({
   sections,
   allSections,
   onOpenTask,
+  taskDepartments,
 }: ViewProps) {
-  const { addTask } = useSectionMutations(projectId, project, automations, tasks, allSections);
+  const { addTask } = useSectionMutations(projectId, project, automations, tasks, allSections, taskDepartments);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
