@@ -253,10 +253,17 @@ function todayLocalIso() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * Concluída não é, por si só, um status de PRAZO — quem quer saber se a
+ * tarefa está pronta já vê pelo checkbox/status. Este pill é sobre cumprir
+ * o prazo: concluída dentro do prazo mostra "No prazo" (ou "Sem prazo" se
+ * nunca teve data), concluída depois do prazo mostra "Atrasado" (já
+ * coberto por isLate acima, que compara completed_at com o prazo).
+ */
 export function deadlineStatus(t: Task): DeadlineStatus {
   if (isCancelled(t)) return "cancelado";
   if (isLate(t)) return "atrasado";
-  if (isDone(t)) return "concluido";
+  if (isDone(t)) return t.due_date ? "no_prazo" : "sem_prazo";
   if (!t.due_date) return "sem_prazo";
   if (t.due_date === todayLocalIso()) return "vencendo_hoje";
   return "no_prazo";
