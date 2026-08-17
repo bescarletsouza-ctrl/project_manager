@@ -52,16 +52,19 @@ function PeoplePage() {
   const [dateTo, setDateTo] = useState("");
 
   /**
-   * Aberta sempre conta (é pendência de agora, filtrar por data de criação
-   * a esconderia do painel inteiro) — o filtro decide só quais tarefas JÁ
-   * CONCLUÍDAS/CANCELADAS entram na foto do período. Mesma regra já usada
-   * em Relatórios.
+   * Aberta sempre conta (é a carga atual da pessoa — filtrar por data
+   * escondia a capacidade de agora). Concluída entra pela data de
+   * CONCLUSÃO, não de criação: "performance no período" é sobre quando a
+   * pessoa entregou, não quando a tarefa nasceu — tarefa criada há meses e
+   * entregue essa semana tem que aparecer ao filtrar essa semana (era o
+   * contrário antes, por isso o filtro parecia não trazer nada). Cancelada
+   * não tem data de conclusão; usa a de criação nesse caso raro.
    */
   const tasks = useMemo(
     () =>
       allTasks.filter((t) => {
         if (isOpen(t)) return true;
-        const d = t.created_at.slice(0, 10);
+        const d = (t.completed_at ?? t.created_at).slice(0, 10);
         if (dateFrom && d < dateFrom) return false;
         if (dateTo && d > dateTo) return false;
         return true;
