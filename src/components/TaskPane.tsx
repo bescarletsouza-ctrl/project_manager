@@ -909,7 +909,7 @@ function SubtaskCheck({
 /** Vincula a mesma tarefa a vários projetos (visível em todos, sem duplicar). */
 /**
  * Anexos da tarefa (bucket privado no Storage). Upload de imagens e PDFs até
- * 10 MB — limite reforçado pelo próprio bucket, mas checamos aqui para dar
+ * 50 MB — limite reforçado pelo próprio bucket, mas checamos aqui para dar
  * mensagem clara antes de tentar. URL para visualizar é sempre signed (5 min).
  */
 function AttachmentsBlock({
@@ -947,8 +947,8 @@ function AttachmentsBlock({
   const onPick = (files: FileList | null) => {
     if (!files) return;
     for (const f of Array.from(files)) {
-      if (f.size > 10 * 1024 * 1024) {
-        toast.error(`"${f.name}" passa de 10 MB.`);
+      if (f.size > 50 * 1024 * 1024) {
+        toast.error(`"${f.name}" passa de 50 MB.`);
         continue;
       }
       upload.mutate(f);
@@ -985,7 +985,7 @@ function AttachmentsBlock({
         </label>
       </div>
       {attachments.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nenhum arquivo ainda. Qualquer tipo de arquivo até 10 MB.</p>
+        <p className="text-xs text-muted-foreground">Nenhum arquivo ainda. Qualquer tipo de arquivo até 50 MB.</p>
       ) : (
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {attachments.map((a) => {
