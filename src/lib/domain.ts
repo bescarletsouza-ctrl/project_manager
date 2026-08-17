@@ -324,12 +324,42 @@ function effectiveStartedAt(t: Task, fieldActivity: TaskFieldActivity[]): string
   return t.started_at ?? firstMove;
 }
 
+/**
+ * Primeira vez que a tarefa entrou numa seção de APROVAÇÃO (por nome, ver
+ * isApprovalSectionName) — não a primeira movimentação qualquer. É o fim
+ * do "tempo médio": mede quanto tempo a pessoa leva pra produzir até
+ * mandar pra aprovação, sem contar o tempo de revisão/aprovação em si.
+ * Sem section_id de destino batendo com uma seção de aprovação alguma vez,
+ * a tarefa fica de fora da média (nunca chegou lá).
+ */
+function firstApprovalEntryAt(
+  taskId: string,
+  fieldActivity: TaskFieldActivity[],
+  approvalSectionIds: Set<string>,
+): string | null {
+  let first: string | null = null;
+  for (const a of fieldActivity) {
+    if (a.task_id !== taskId || a.field !== "section_id" || !a.new_value) continue;
+    if (!approvalSectionIds.has(a.new_value)) continue;
+    if (!first || a.created_at < first) first = a.created_at;
+  }
+  return first;
+}
+
 /* ---------- métricas agregadas ---------- */
 
 export type PersonMetrics = ReturnType<typeof personMetrics>;
 
-/** fieldActivity é opcional — sem ele, cycle time/tempo até iniciar caem no started_at nativo (comportamento de sempre). */
-export function personMetrics(member: Member, tasks: Task[], fieldActivity: TaskFieldActivity[] = []) {
+/**
+ * fieldActivity e sections são opcionais — sem eles, "tempo médio" fica
+ * vazio (nunca acha uma seção de aprovação pra medir) em vez de quebrar.
+ */
+export function personMetrics(
+  member: Member,
+  tasks: Task[],
+  fieldActivity: TaskFieldActivity[] = [],
+  sections: { id: string; name: string }[] = [],
+) {
   const mine = tasks.filter((t) => t.assignee_id === member.id);
   const done = mine.filter(isDone);
   const open = mine.filter(isOpen);
@@ -357,7 +387,12 @@ export function personMetrics(member: Member, tasks: Task[], fieldActivity: Task
 
   const onTimeRate = done.length ? pct(onTime.length, done.length) : 0;
   const reworkRate = mine.length ? pct(reopened.length, mine.length) : 0;
-  const avgCycle = avg(done.map((t) => hoursBetween(effectiveStartedAt(t, fieldActivity), t.completed_at)));
+  const approvalSectionIds = new Set(sections.filter((s) => isApprovalSectionName(s.name)).map((s) => s.id));
+  // "Tempo médio" = criação → primeira entrada numa seção de aprovação
+  // (não até a conclusão) — mede o tempo de produção, não o de revisão.
+  const avgCycle = avg(
+    mine.map((t) => hoursBetween(t.created_at, firstApprovalEntryAt(t.id, fieldActivity, approvalSectionIds))),
+  );
   const avgLead = avg(done.map(leadTime));
   const avgToStart = avg(mine.map((t) => hoursBetween(t.created_at, effectiveStartedAt(t, fieldActivity))));
 

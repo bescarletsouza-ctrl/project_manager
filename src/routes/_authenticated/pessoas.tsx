@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bar, MetaItem, Pill, SectionTitle, StatCard } from "@/components/ui-bits";
 import { useWorkspaceData, nameById, initials } from "@/lib/useData";
 import { taskFieldActivityQuery } from "@/lib/data";
+import { sectionsQuery } from "@/lib/asana";
 import { formatHours, isOpen, personMetrics } from "@/lib/domain";
 import { requireRole } from "@/lib/access";
 
@@ -53,6 +54,7 @@ function PeoplePage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const fieldActivity = useQuery(taskFieldActivityQuery).data ?? [];
+  const sections = useQuery(sectionsQuery).data ?? [];
 
   /**
    * Aberta sempre conta (é a carga atual da pessoa — filtrar por data
@@ -76,13 +78,13 @@ function PeoplePage() {
   );
 
   const metrics = useMemo(() => {
-    const list = members.map((m) => personMetrics(m, tasks, fieldActivity));
+    const list = members.map((m) => personMetrics(m, tasks, fieldActivity, sections));
     return list.sort((a, b) => {
       if (sort === "avgCycle") return (a.avgCycle ?? 1e9) - (b.avgCycle ?? 1e9);
       if (sort === "reworkRate") return a.reworkRate - b.reworkRate;
       return (b[sort] as number) - (a[sort] as number);
     });
-  }, [members, tasks, fieldActivity, sort]);
+  }, [members, tasks, fieldActivity, sections, sort]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 

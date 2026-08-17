@@ -15,7 +15,8 @@ import {
 import { SectionTitle, StatCard } from "@/components/ui-bits";
 import { DrilldownPanel, type Selection } from "@/components/dashboard/DrilldownPanel";
 import { useQuery } from "@tanstack/react-query";
-import { taskDepartmentsQuery } from "@/lib/asana";
+import { sectionsQuery, taskDepartmentsQuery } from "@/lib/asana";
+import { taskFieldActivityQuery } from "@/lib/data";
 import { requireRole } from "@/lib/access";
 import { useWorkspaceData, nameById, taskDepartmentIdsOf } from "@/lib/useData";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,8 @@ function daysAgoIso(days: number) {
 function ReportsPage() {
   const { tasks: allTasks, members, departments, projects, clients, events, isLoading } = useWorkspaceData();
   const taskDepartments = useQuery(taskDepartmentsQuery).data ?? [];
+  const fieldActivity = useQuery(taskFieldActivityQuery).data ?? [];
+  const sections = useQuery(sectionsQuery).data ?? [];
   const [group, setGroup] = useState<Group>("colaborador");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -381,7 +384,7 @@ function ReportsPage() {
 
       <p className="text-xs text-muted-foreground">
         Índice de produtividade da equipe:{" "}
-        {Math.round(avg(members.map((m) => personMetrics(m, tasks).index)) ?? 0)} / 100 — referência operacional, não
+        {Math.round(avg(members.map((m) => personMetrics(m, tasks, fieldActivity, sections).index)) ?? 0)} / 100 — referência operacional, não
         avaliação isolada de desempenho.
       </p>
     </div>
