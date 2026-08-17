@@ -112,6 +112,63 @@ function plainTextOf(html: string) {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+const URL_RE = /https?:\/\/[^\s<]+/g;
+/** Pontuação de fim de frase que não deve grudar no link ("veja https://x.com." → o "." fica de fora). */
+const URL_TRAILING_PUNCT_RE = /[.,;:!?)\]}'"]+$/;
+
+/** Quebra um texto solto em nós de texto + <a> nas URLs encontradas. */
+function linkifyText(text: string, doc: Document): Node[] {
+  const out: Node[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    const start = match.index ?? 0;
+    let url = match[0];
+    const trailMatch = url.match(URL_TRAILING_PUNCT_RE);
+    const trail = trailMatch ? trailMatch[0] : "";
+    if (trail) url = url.slice(0, -trail.length);
+    if (!url) continue;
+    if (start > last) out.push(doc.createTextNode(text.slice(last, start)));
+    const a = doc.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = url;
+    out.push(a);
+    last = start + url.length;
+    if (trail) out.push(doc.createTextNode(trail));
+  }
+  if (last < text.length) out.push(doc.createTextNode(text.slice(last)));
+  return out.length ? out : [doc.createTextNode(text)];
+}
+
+/** Não entra em links/código já existentes — evita link dentro de link ou linkificar uma URL de exemplo em bloco de código. */
+const SKIP_LINKIFY_TAGS = new Set(["A", "CODE", "PRE"]);
+
+function linkifyNode(node: Node, doc: Document): void {
+  const el = node as HTMLElement;
+  if (node.nodeType === Node.ELEMENT_NODE && SKIP_LINKIFY_TAGS.has(el.tagName)) return;
+  const children = Array.from(node.childNodes);
+  for (const child of children) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent) {
+      const replacement = linkifyText(child.textContent, doc);
+      if (replacement.some((n) => n.nodeType === Node.ELEMENT_NODE)) {
+        const frag = doc.createDocumentFragment();
+        replacement.forEach((n) => frag.appendChild(n));
+        node.replaceChild(frag, child);
+      }
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      linkifyNode(child, doc);
+    }
+  }
+}
+
+/** Converte URLs soltas (texto puro, sem link) em <a> clicável — pra comentário/descrição digitados ou colados sem passar pelo fluxo de preview de link. */
+export function linkifyHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  linkifyNode(doc.body, doc);
+  return doc.body.innerHTML;
+}
+
 /** Classes compartilhadas pra listas/links renderizarem certo (sem plugin de typography). */
 const RICH_CONTENT_CLASSES =
   "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-brand [&_a]:underline [&_strong]:font-semibold [&_b]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px] [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md " +
@@ -226,7 +283,12 @@ export function RichTextEditor({
   };
 
   useEffect(() => {
-    if (ref.current) ref.current.innerHTML = value || "";
+    // linkifyHtml pra URL solta salva como texto puro (digitada, ou colada
+    // junto de outro texto) virar clicável ao carregar — este editor fica
+    // sempre em modo edição, sem uma view somente-leitura separada como o
+    // comentário tem (RichTextView), então sem isso a descrição nunca
+    // ganhava o link clicável mesmo depois de salva.
+    if (ref.current) ref.current.innerHTML = linkifyHtml(value || "");
     setExpanded(false);
     checkOverflow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,13 +478,26 @@ export function RichTextEditor({
   const currentLinkMode = (el: HTMLAnchorElement): LinkDisplayMode =>
     el.classList.contains("link-preview-inline") ? "inline" : el.classList.contains("link-preview-url") ? "url" : "card";
 
-  /** Clique num link com preview abre o menu "Exibir como" em vez de navegar — evita sair da tarefa sem querer ao editar. */
+  /**
+   * Clique num link com preview abre o menu "Exibir como" em vez de navegar —
+   * evita sair da tarefa sem querer ao editar. Link comum (sem preview, ex.:
+   * URL digitada/colada solta no meio do texto) abre direto em nova aba — sem
+   * isso ficava sem clicar dentro do contentEditable, que por padrão só
+   * navega com Ctrl/Cmd+clique.
+   */
   const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = (e.target as HTMLElement).closest('a[data-lp="1"]') as HTMLAnchorElement | null;
-    if (!target) return;
-    e.preventDefault();
-    const rect = target.getBoundingClientRect();
-    setLinkMenu({ el: target, x: rect.left, y: rect.bottom + 4 });
+    const lp = (e.target as HTMLElement).closest('a[data-lp="1"]') as HTMLAnchorElement | null;
+    if (lp) {
+      e.preventDefault();
+      const rect = lp.getBoundingClientRect();
+      setLinkMenu({ el: lp, x: rect.left, y: rect.bottom + 4 });
+      return;
+    }
+    const plain = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
+    if (plain) {
+      e.preventDefault();
+      window.open(plain.href, "_blank", "noopener,noreferrer");
+    }
   };
 
   /**
@@ -721,7 +796,7 @@ export function RichTextView({ html, className }: { html: string; className?: st
   return (
     <div
       className={cn("text-sm break-words", RICH_CONTENT_CLASSES, className)}
-      dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
+      dangerouslySetInnerHTML={{ __html: linkifyHtml(sanitizeHtml(html)) }}
     />
   );
 }
