@@ -156,7 +156,16 @@ export function TaskPane({
 
   // patch (status/responsável/seção) pode rodar automações que mexem em
   // task_projects, task_field_values e criar notificação, além do "tasks".
-  const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  // Mudar a seção de um departamento SECUNDÁRIO grava em task_departments
+  // (não em "tasks") — sem essa chave aqui, a escrita ia certa no banco mas
+  // a tela ficava com o valor antigo, parecendo que "não salvou".
+  const invalidatePatch = useInvalidate([
+    "tasks",
+    "task_projects",
+    "task_departments",
+    "task_field_values",
+    "notifications",
+  ]);
   const invalidateTask = useInvalidate(["tasks"]);
   const invalidateComments = useInvalidate(["task_comments", "comment_mentions", "notifications"]);
   const invalidateDeps = useInvalidate(["task_dependencies"]);
@@ -974,7 +983,7 @@ function SubtaskCheck({
   automations: Automation[];
   taskDepartments: TaskDepartment[];
 }) {
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const done = task.status === "concluido";
   const toggle = useMutation({
     mutationFn: async () => {

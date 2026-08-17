@@ -180,7 +180,7 @@ export function useSectionMutations(
   const invalidateSectionsCascade = useInvalidate(["sections", "tasks"]);
   // Automação pode mexer em task_projects (mover seção de projeto),
   // task_field_values (set_field) ou criar notificação.
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
 
   const addSection = useMutation({
     mutationFn: (name: string) => createSection({ project_id: projectId, name, position: 999 }),
@@ -373,7 +373,7 @@ function TaskToggle({
   size?: "sm" | "md";
 }) {
   const done = task.status === "concluido";
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const toggle = useMutation({
@@ -895,7 +895,7 @@ function useTaskPatch(
   // Cobre os dois caminhos do mutationFn: patch simples só mexe em "tasks",
   // mas o de seção pode rodar automação (task_projects/task_field_values/
   // notifications) — usar o superset evita invalidação incompleta.
-  const invalidate = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidate = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   return useMutation({
     mutationFn: async (patch: Partial<Task>) => {
       // Seção muda de container/agrupamento — precisa gravar no lugar certo
@@ -1710,7 +1710,7 @@ function TaskContextMenu({
   children: React.ReactNode;
   currentMemberId?: string | null;
 }) {
-  const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidatePatch = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const invalidateTask = useInvalidate(["tasks"]);
 
   const patch = useMutation({

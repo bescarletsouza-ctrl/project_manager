@@ -237,7 +237,7 @@ function DepartmentDetail() {
   const invalidateSectionsCascade = useInvalidate(["sections", "tasks"]);
   // Qualquer mutação que roda automações pode mexer em task_projects (mover
   // seção de projeto), task_field_values (set_field) ou criar notificação.
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
 
   const patchDept = useMutation({
     mutationFn: (patch: { name?: string; color?: string }) => updateDepartment(departmentId, patch),
@@ -1073,7 +1073,7 @@ function TaskCard({
   currentMemberId: string | null;
 }) {
   const invalidateTask = useInvalidate(["tasks"]);
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const currentMemberName = members.find((m) => m.id === currentMemberId)?.name ?? null;
@@ -2011,7 +2011,7 @@ function TaskRow({
   const [editingTitle, setEditingTitle] = useState(false);
   const done = task.status === "concluido";
   const invalidateTask = useInvalidate(["tasks"]);
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const currentMemberName = members.find((m) => m.id === currentMemberId)?.name ?? null;

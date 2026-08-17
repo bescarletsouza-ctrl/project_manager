@@ -175,7 +175,7 @@ export function TaskCheck({
   automations?: Automation[];
   taskDepartments?: TaskDepartment[];
 }) {
-  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_field_values", "notifications"]);
+  const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
   const comments = useQuery(commentsQuery).data ?? [];
   const mentions = useQuery(mentionsQuery).data ?? [];
   const done = task.status === "concluido";
