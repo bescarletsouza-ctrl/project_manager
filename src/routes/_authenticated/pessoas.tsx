@@ -15,7 +15,7 @@ import {
 } from "recharts";
 import { Bar, MetaItem, Pill, SectionTitle, StatCard } from "@/components/ui-bits";
 import { useWorkspaceData, nameById, initials } from "@/lib/useData";
-import { formatHours, personMetrics } from "@/lib/domain";
+import { formatHours, isOpen, personMetrics } from "@/lib/domain";
 import { requireRole } from "@/lib/access";
 
 export const Route = createFileRoute("/_authenticated/pessoas")({
@@ -45,9 +45,29 @@ const SORTS = [
 ] as const;
 
 function PeoplePage() {
-  const { members, tasks, departments, isLoading } = useWorkspaceData();
+  const { members, tasks: allTasks, departments, isLoading } = useWorkspaceData();
   const [sort, setSort] = useState<(typeof SORTS)[number]["key"]>("index");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  /**
+   * Aberta sempre conta (é pendência de agora, filtrar por data de criação
+   * a esconderia do painel inteiro) — o filtro decide só quais tarefas JÁ
+   * CONCLUÍDAS/CANCELADAS entram na foto do período. Mesma regra já usada
+   * em Relatórios.
+   */
+  const tasks = useMemo(
+    () =>
+      allTasks.filter((t) => {
+        if (isOpen(t)) return true;
+        const d = t.created_at.slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      }),
+    [allTasks, dateFrom, dateTo],
+  );
 
   const metrics = useMemo(() => {
     const list = members.map((m) => personMetrics(m, tasks));
@@ -74,17 +94,48 @@ function PeoplePage() {
             A comparação considera complexidade, prazo, velocidade e retrabalho — nunca apenas o volume de tarefas.
           </p>
         </div>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as typeof sort)}
-          className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-        >
-          {SORTS.map((s) => (
-            <option key={s.key} value={s.key}>
-              Ordenar: {s.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            De
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="rounded-md border border-input bg-background px-2 py-2 text-xs"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            Até
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="rounded-md border border-input bg-background px-2 py-2 text-xs"
+            />
+          </label>
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="rounded-md border border-input px-2.5 py-2 text-xs hover:bg-secondary"
+            >
+              Limpar
+            </button>
+          )}
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as typeof sort)}
+            className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+          >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                Ordenar: {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="space-y-2">
