@@ -160,9 +160,9 @@ function PeoplePage() {
                 <Pill tone={m.load >= 1.15 ? "danger" : m.load >= 0.85 ? "warning" : "success"}>
                   {m.loadLabel}
                 </Pill>
-                {m.lateOpen > 0 && (
+                {m.late > 0 && (
                   <Pill tone="danger">
-                    {m.lateOpen} atrasada{m.lateOpen > 1 ? "s" : ""}
+                    {m.late} atrasada{m.late > 1 ? "s" : ""}
                   </Pill>
                 )}
               </div>
@@ -193,7 +193,7 @@ function PeoplePage() {
             <StatCard label="Tarefas recebidas" value={selected.total} />
             <StatCard label="Concluídas" value={selected.done} hint={`${selected.points} pts`} tone="success" />
             <StatCard label="Abertas" value={selected.open} hint={`${selected.openPoints} pts`} />
-            <StatCard label="Atrasadas" value={selected.lateOpen} tone={selected.lateOpen ? "danger" : "success"} />
+            <StatCard label="Atrasadas" value={selected.late} tone={selected.late ? "danger" : "success"} />
             <StatCard label="Bloqueadas" value={selected.blocked} tone="warning" />
             <StatCard label="Reaberturas" value={selected.reopened} />
             <StatCard label="Revisões" value={selected.reviews} />

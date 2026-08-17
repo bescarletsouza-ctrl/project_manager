@@ -314,11 +314,6 @@ export function personMetrics(member: Member, tasks: Task[]) {
   const done = mine.filter(isDone);
   const open = mine.filter(isOpen);
   const late = mine.filter(isLate);
-  // Atrasadas que ainda pesam na carga de hoje — exclui entrega já feita
-  // (mesmo que tenha sido feita depois do prazo, isso é histórico, não
-  // fila pendente). "late" sozinho mistura os dois e infla o aviso de
-  // sobrecarga com coisa que já foi entregue.
-  const lateOpen = late.filter(isOpen);
   const onTime = done.filter((t) => !isLate(t));
   const blocked = mine.filter((t) => t.status === "bloqueado");
   const points = done.reduce((s, t) => s + t.complexity, 0);
@@ -355,7 +350,6 @@ export function personMetrics(member: Member, tasks: Task[]) {
     done: done.length,
     open: open.length,
     late: late.length,
-    lateOpen: lateOpen.length,
     blocked: blocked.length,
     reopened: reopened.length,
     reviews: mine.reduce((s, t) => s + t.review_count, 0),
