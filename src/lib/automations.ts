@@ -262,19 +262,18 @@ export async function applyAutomationMoves(
 
 /**
  * Move a tarefa para uma seção (de projeto OU de departamento — id único,
- * a origem é resolvida por lookup em allSections) e ESPELHA por nome no
- * outro container quando a tarefa pertence aos dois.
+ * a origem é resolvida por lookup em allSections). Cada container (projeto,
+ * departamento principal, departamentos extras) guarda a própria seção,
+ * sem espelhar em nenhum outro — mudar a seção de um nunca mexe nos demais.
  *
  * Por quê: task.section_id é o campo "nativo" da tarefa (usado como posição
- * no departamento), enquanto a posição no projeto vive em task_projects
- * (independente, para suportar tarefa em vários projetos). Gravar direto em
- * task.section_id a partir de uma ação feita no projeto vazava a seção do
- * departamento (e vice-versa) — as duas visões brigavam pelo mesmo campo.
- * Escrever cada lado no lugar certo resolve isso; espelhar por nome atende
- * o pedido de "mover no departamento reflete no projeto" sem inventar um
- * mapeamento novo (usa o nome da seção como chave, ex.: "Em andamento").
- * Sem seção com nome igual do outro lado, a tarefa fica sem seção lá — não
- * fica presa na seção antiga por engano.
+ * no departamento PRINCIPAL), enquanto a posição no projeto vive em
+ * task_projects e a de cada departamento EXTRA vive em task_departments —
+ * containers independentes, cada um no seu lugar. Uma versão anterior
+ * espelhava por nome entre projeto e departamento principal quando a
+ * tarefa tinha os dois — isso surpreendia (mudar a seção de um limpava a
+ * do outro sempre que não havia seção de mesmo nome do lado de lá), e
+ * contradizia o isolamento que esta função existe pra garantir. Removido.
  */
 export async function moveTaskSection(
   task: Task,
@@ -284,7 +283,6 @@ export async function moveTaskSection(
   taskDepartments: TaskDepartment[],
 ): Promise<{ applied: string[] }> {
   const target = targetSectionId ? allSections.find((s) => s.id === targetSectionId) : null;
-  const isProjectTarget = target?.project_id != null;
   const isDeptTarget = target?.department_id != null;
   // Departamento SECUNDÁRIO = a seção escolhida é de um departamento da
   // tarefa diferente do principal (task.department_id). Determina isso pelo
@@ -323,20 +321,6 @@ export async function moveTaskSection(
   }
   if (Object.keys(patch).length > 0) await updateTask(task.id, patch);
   await applyAutomationMoves(task.id, container, moves);
-
-  // Espelhar por nome entre projeto e departamento só faz sentido pro par
-  // PRINCIPAL da tarefa — fazer isso pra um departamento secundário
-  // quebraria justamente o isolamento que essa função existe pra garantir.
-  if (!isSecondaryDeptTarget && task.project_id && task.department_id && target) {
-    const sameName = (s: Section) => s.name.trim().toLowerCase() === target.name.trim().toLowerCase();
-    if (isDeptTarget) {
-      const mirror = allSections.find((s) => s.project_id === task.project_id && sameName(s));
-      await setTaskProjectSection(task.id, task.project_id, mirror?.id ?? null);
-    } else if (isProjectTarget) {
-      const mirror = allSections.find((s) => s.department_id === task.department_id && sameName(s));
-      await updateTask(task.id, { section_id: mirror?.id ?? null });
-    }
-  }
 
   /**
    * Demanda que CHEGA numa seção "Não planejado" também conta como fora do
