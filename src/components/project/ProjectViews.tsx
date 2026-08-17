@@ -252,7 +252,8 @@ export function useSectionMutations(
       return newId;
     },
     onSuccess: () => invalidateTaskAuto(),
-    onError: () => toast.error("Não foi possível criar a tarefa."),
+    onError: (e: unknown) =>
+      toast.error(`Não foi possível criar a tarefa: ${(e as { message?: string })?.message ?? "erro"}`),
   });
 
   const moveTask = useMutation({
