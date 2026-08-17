@@ -28,7 +28,7 @@ import {
   taskFieldActivityQuery,
   updateTask,
 } from "@/lib/data";
-import { taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
+import { sectionIdInDept, taskDepartmentIdsOf, useInvalidate } from "@/lib/useData";
 import {
   FIELD_TYPE_LABEL,
   addDependency,
@@ -46,6 +46,7 @@ import {
   removeDependency,
   resolveMentions,
   setFieldValue,
+  setTaskDepartmentSection,
   setTaskProjectSection,
   unlinkTaskFromProject,
   type Automation,
@@ -235,6 +236,20 @@ export function TaskPane({
     onError: () => toast.error("Não foi possível salvar os departamentos."),
   });
 
+  /**
+   * Limpar ("Sem seção") a seção de um departamento SECUNDÁRIO não pode
+   * passar pelo patch genérico de section_id: moveTaskSection decide entre
+   * principal/secundário olhando o department_id da seção ESCOLHIDA, e uma
+   * seção nula não carrega essa informação — cairia no branch do principal
+   * por padrão e limparia o campo errado. Escreve direto na linha do
+   * departamento secundário em task_departments.
+   */
+  const clearExtraDepartmentSection = useMutation({
+    mutationFn: (departmentId: string) => setTaskDepartmentSection(task.id, departmentId, null),
+    onSuccess: () => invalidateTaskDepartments(),
+    onError: () => toast.error("Não foi possível salvar a seção."),
+  });
+
   const remove = useMutation({
     mutationFn: () => deleteTask(task.id),
     onSuccess: () => {
@@ -334,6 +349,15 @@ export function TaskPane({
       (task.project_id != null && s.project_id === task.project_id) ||
       (s.department_id != null && taskDeptIds.includes(s.department_id)),
   );
+  /**
+   * Seção do PROJETO da tarefa (não confundir com o campo nativo
+   * task.section_id, que pertence ao departamento PRINCIPAL quando há um) —
+   * vem do vínculo em task_projects, mesma regra usada em ProjectViews/
+   * tarefas.tsx (sectionOf/sectionIdOfTask).
+   */
+  const projectSectionId = task.project_id
+    ? (taskProjects.find((tp) => tp.task_id === task.id && tp.project_id === task.project_id)?.section_id ?? null)
+    : null;
   const candidates = tasks.filter((t) => t.id !== task.id && t.project_id === task.project_id);
   const blockedOpen = blockers.some((d) => {
     const b = tasks.find((t) => t.id === d.blocked_by_task_id);
@@ -550,46 +574,88 @@ export function TaskPane({
                 ))}
               </select>
 
-              {projectSections.length > 0 && (
+              {/**
+                * Com 2+ departamentos, cada um tem sua PRÓPRIA seção — uma
+                * linha "Seção" por departamento (mais uma pro projeto, se
+                * houver), cada uma mostrando e editando o valor certo daquele
+                * container. Com 0-1 departamento (o caso comum), fica o campo
+                * único de sempre, sem essa divisão.
+                */}
+              {taskDeptIds.length > 1 ? (
                 <>
-                  <FieldLabel>Seção</FieldLabel>
-                  {/* Com mais de um departamento, cada um tem sua própria seção (task_departments) —
-                      o valor mostrado aqui é sempre o do departamento PRINCIPAL; mudar seção de um
-                      departamento extra funciona (grava certo, via moveTaskSection), mas pra ver/editar
-                      a seção de um extra especificamente use o quadro daquele departamento. */}
-                  <select
-                    aria-label="Seção"
-                    className={ctl}
-                    value={task.section_id ?? ""}
-                    onChange={(e) => patch.mutate({ section_id: e.target.value || null })}
-                  >
-                    <option value="">Sem seção</option>
-                    {taskDeptIds.length > 1
-                      ? departments
-                          .filter((d) => taskDeptIds.includes(d.id))
-                          .map((d) => {
-                            const opts = projectSections.filter((s) => s.department_id === d.id);
-                            if (!opts.length) return null;
-                            return (
-                              <optgroup key={d.id} label={d.id === task.department_id ? `${d.name} (principal)` : d.name}>
-                                {opts.map((s) => (
-                                  <option key={s.id} value={s.id}>
-                                    {s.name}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            );
-                          })
-                      : null}
-                    {(taskDeptIds.length <= 1 ? projectSections : projectSections.filter((s) => s.department_id == null)).map(
-                      (s) => (
+                  {task.project_id &&
+                    (() => {
+                      const opts = sections.filter((s) => s.project_id === task.project_id);
+                      if (!opts.length) return null;
+                      return (
+                        <>
+                          <FieldLabel>{`Seção — ${project?.name ?? "Projeto"}`}</FieldLabel>
+                          <select
+                            aria-label={`Seção — ${project?.name ?? "Projeto"}`}
+                            className={ctl}
+                            value={projectSectionId ?? ""}
+                            onChange={(e) => patch.mutate({ section_id: e.target.value || null })}
+                          >
+                            <option value="">Sem seção</option>
+                            {opts.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      );
+                    })()}
+                  {departments
+                    .filter((d) => taskDeptIds.includes(d.id))
+                    .map((d) => {
+                      const opts = sections.filter((s) => s.department_id === d.id);
+                      if (!opts.length) return null;
+                      const isPrimary = d.id === task.department_id;
+                      const currentId = sectionIdInDept(task, d.id, taskDepartments);
+                      return (
+                        <div key={d.id} className="contents">
+                          <FieldLabel>{`Seção — ${d.name}${isPrimary ? " (principal)" : ""}`}</FieldLabel>
+                          <select
+                            aria-label={`Seção — ${d.name}`}
+                            className={ctl}
+                            value={currentId ?? ""}
+                            onChange={(e) => {
+                              const next = e.target.value || null;
+                              if (isPrimary || next) patch.mutate({ section_id: next });
+                              else clearExtraDepartmentSection.mutate(d.id);
+                            }}
+                          >
+                            <option value="">Sem seção</option>
+                            {opts.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                </>
+              ) : (
+                projectSections.length > 0 && (
+                  <>
+                    <FieldLabel>Seção</FieldLabel>
+                    <select
+                      aria-label="Seção"
+                      className={ctl}
+                      value={task.section_id ?? ""}
+                      onChange={(e) => patch.mutate({ section_id: e.target.value || null })}
+                    >
+                      <option value="">Sem seção</option>
+                      {projectSections.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
                         </option>
-                      ),
-                    )}
-                  </select>
-                </>
+                      ))}
+                    </select>
+                  </>
+                )
               )}
 
               <FieldLabel>Sprint</FieldLabel>

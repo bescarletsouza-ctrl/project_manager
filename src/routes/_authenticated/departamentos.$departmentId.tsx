@@ -53,7 +53,7 @@ import {
   type TaskDepartment,
 } from "@/lib/asana";
 import { deleteDepartment, deleteTask, updateDepartment, updateTask } from "@/lib/data";
-import { departmentIdsOf, taskDepartmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
+import { departmentIdsOf, sectionIdInDept, taskDepartmentIdsOf, useInvalidate, useWorkspaceData } from "@/lib/useData";
 import { useAsanaData, useCurrentMember } from "@/lib/useAsana";
 import {
   applyAutomationMoves,
@@ -140,19 +140,6 @@ const LIST_COLUMN_DEFAULT_WIDTH: Record<string, number> = {
 };
 const listColumnDefaultWidth = (id: string) => LIST_COLUMN_DEFAULT_WIDTH[id] ?? 100;
 type ColumnPrefs = Record<ColumnKey, boolean>;
-
-/**
- * Seção "de verdade" da tarefa NESTE departamento: se for o principal
- * (task.department_id), é o campo nativo (task.section_id) — igual sempre
- * foi. Se for um departamento SECUNDÁRIO, a seção vive na linha dele em
- * task_departments — nunca no campo nativo, que pertence a outro
- * container. É essa separação que garante que mover a seção aqui não
- * mexe na seção que a tarefa tem nos outros departamentos.
- */
-function sectionIdInDept(task: Task, departmentId: string, taskDepartments: TaskDepartment[]): string | null {
-  if (task.department_id === departmentId) return task.section_id;
-  return taskDepartments.find((td) => td.task_id === task.id && td.department_id === departmentId)?.section_id ?? null;
-}
 
 function useDeptColumnPrefs(departmentId: string): [ColumnPrefs, (key: ColumnKey, on: boolean) => void] {
   const storageKey = `fluxo:dept-cols:${departmentId}`;

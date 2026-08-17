@@ -66,6 +66,23 @@ export function taskDepartmentIdsOf(
   return task.department_id ? [task.department_id, ...extras] : extras;
 }
 
+/**
+ * Seção "de verdade" da tarefa NUM departamento específico: se for o
+ * principal (task.department_id), é o campo nativo (task.section_id). Se
+ * for um SECUNDÁRIO, a seção vive na linha dele em task_departments — nunca
+ * no campo nativo, que pertence a outro container. Usado tanto pro quadro
+ * de cada departamento quanto pro TaskPane mostrar/editar a seção certa de
+ * cada departamento da tarefa.
+ */
+export function sectionIdInDept(
+  task: { id: string; department_id: string | null; section_id: string | null },
+  departmentId: string,
+  taskDepartments: { task_id: string; department_id: string; section_id: string | null }[],
+): string | null {
+  if (task.department_id === departmentId) return task.section_id;
+  return taskDepartments.find((td) => td.task_id === task.id && td.department_id === departmentId)?.section_id ?? null;
+}
+
 export function nameById<T extends { id: string; name: string }>(list: T[], id?: string | null) {
   if (!id) return "—";
   return list.find((x) => x.id === id)?.name ?? "—";
