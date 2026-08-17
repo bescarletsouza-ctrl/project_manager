@@ -305,15 +305,40 @@ export function daysWithoutMovement(events: StatusEvent[], task: Task) {
   return (Date.now() - new Date(last).getTime()) / (HOUR * 24);
 }
 
+/**
+ * Quando o trabalho "começou" de verdade: o started_at nativo (só é setado
+ * quando o status vira "em_andamento") OU a primeira mudança de SEÇÃO já
+ * registrada em task_field_activity — o que vier primeiro. Sem isso, uma
+ * tarefa que pula direto pra outra seção (ex.: "Em aprovação") sem nunca
+ * passar pelo status "em_andamento" nunca ganhava started_at, mesmo já
+ * tendo saído do backlog — ficava fora do tempo médio (nem contava como
+ * atraso, nem como demora), mascarando o dado.
+ */
+function effectiveStartedAt(t: Task, fieldActivity: TaskFieldActivity[]): string | null {
+  let firstMove: string | null = null;
+  for (const a of fieldActivity) {
+    if (a.task_id !== t.id || a.field !== "section_id") continue;
+    if (!firstMove || a.created_at < firstMove) firstMove = a.created_at;
+  }
+  if (t.started_at && firstMove) return t.started_at < firstMove ? t.started_at : firstMove;
+  return t.started_at ?? firstMove;
+}
+
 /* ---------- métricas agregadas ---------- */
 
 export type PersonMetrics = ReturnType<typeof personMetrics>;
 
-export function personMetrics(member: Member, tasks: Task[]) {
+/** fieldActivity é opcional — sem ele, cycle time/tempo até iniciar caem no started_at nativo (comportamento de sempre). */
+export function personMetrics(member: Member, tasks: Task[], fieldActivity: TaskFieldActivity[] = []) {
   const mine = tasks.filter((t) => t.assignee_id === member.id);
   const done = mine.filter(isDone);
   const open = mine.filter(isOpen);
   const late = mine.filter(isLate);
+  // Atrasadas que ainda pesam hoje (sem contar entrega já feita, mesmo que
+  // tenha sido feita depois do prazo — isso é histórico, não fila
+  // pendente). Usado no retrato "sem filtro" da Produtividade; com filtro
+  // de período aplicado, usa "late" (aberta + finalizada) em vez disso.
+  const lateOpen = late.filter(isOpen);
   const onTime = done.filter((t) => !isLate(t));
   const blocked = mine.filter((t) => t.status === "bloqueado");
   const points = done.reduce((s, t) => s + t.complexity, 0);
@@ -332,9 +357,9 @@ export function personMetrics(member: Member, tasks: Task[]) {
 
   const onTimeRate = done.length ? pct(onTime.length, done.length) : 0;
   const reworkRate = mine.length ? pct(reopened.length, mine.length) : 0;
-  const avgCycle = avg(done.map(cycleTime));
+  const avgCycle = avg(done.map((t) => hoursBetween(effectiveStartedAt(t, fieldActivity), t.completed_at)));
   const avgLead = avg(done.map(leadTime));
-  const avgToStart = avg(mine.map(timeToStart));
+  const avgToStart = avg(mine.map((t) => hoursBetween(t.created_at, effectiveStartedAt(t, fieldActivity))));
 
   // Índice de produtividade (0-100): pontos, prazo, velocidade, retrabalho
   const pointScore = Math.min(100, (points / Math.max(1, member.capacity_points)) * 100);
@@ -350,6 +375,7 @@ export function personMetrics(member: Member, tasks: Task[]) {
     done: done.length,
     open: open.length,
     late: late.length,
+    lateOpen: lateOpen.length,
     blocked: blocked.length,
     reopened: reopened.length,
     reviews: mine.reduce((s, t) => s + t.review_count, 0),

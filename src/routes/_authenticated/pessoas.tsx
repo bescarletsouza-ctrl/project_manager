@@ -13,8 +13,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 import { Bar, MetaItem, Pill, SectionTitle, StatCard } from "@/components/ui-bits";
 import { useWorkspaceData, nameById, initials } from "@/lib/useData";
+import { taskFieldActivityQuery } from "@/lib/data";
 import { formatHours, isOpen, personMetrics } from "@/lib/domain";
 import { requireRole } from "@/lib/access";
 
@@ -50,6 +52,7 @@ function PeoplePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const fieldActivity = useQuery(taskFieldActivityQuery).data ?? [];
 
   /**
    * Aberta sempre conta (é a carga atual da pessoa — filtrar por data
@@ -73,13 +76,13 @@ function PeoplePage() {
   );
 
   const metrics = useMemo(() => {
-    const list = members.map((m) => personMetrics(m, tasks));
+    const list = members.map((m) => personMetrics(m, tasks, fieldActivity));
     return list.sort((a, b) => {
       if (sort === "avgCycle") return (a.avgCycle ?? 1e9) - (b.avgCycle ?? 1e9);
       if (sort === "reworkRate") return a.reworkRate - b.reworkRate;
       return (b[sort] as number) - (a[sort] as number);
     });
-  }, [members, tasks, sort]);
+  }, [members, tasks, fieldActivity, sort]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
@@ -87,6 +90,15 @@ function PeoplePage() {
   const teamAvgPoints = metrics.length
     ? Math.round(metrics.reduce((s, m) => s + m.points, 0) / metrics.length)
     : 0;
+  /**
+   * Sem filtro: retrato de HOJE, só atrasada ainda aberta (lateOpen) — é o
+   * número que importa pra saber quem está sob risco agora. Com filtro de
+   * período: total do período, aberta + finalizada (late), porque aí a
+   * pergunta é "quantas atrasaram nesse período", não "quantas pesam hoje".
+   */
+  const dateFilterActive = Boolean(dateFrom || dateTo);
+  const lateOf = (m: (typeof metrics)[number]) => (dateFilterActive ? m.late : m.lateOpen);
+  const lateLabel = dateFilterActive ? "Total atrasadas (finalizadas e abertas)" : "Atrasadas";
 
   return (
     <div className="space-y-8">
@@ -160,9 +172,10 @@ function PeoplePage() {
                 <Pill tone={m.load >= 1.15 ? "danger" : m.load >= 0.85 ? "warning" : "success"}>
                   {m.loadLabel}
                 </Pill>
-                {m.late > 0 && (
+                {lateOf(m) > 0 && (
                   <Pill tone="danger">
-                    {m.late} atrasada{m.late > 1 ? "s" : ""}
+                    {lateOf(m)} atrasada{lateOf(m) > 1 ? "s" : ""}
+                    {dateFilterActive ? " (total)" : ""}
                   </Pill>
                 )}
               </div>
@@ -193,7 +206,7 @@ function PeoplePage() {
             <StatCard label="Tarefas recebidas" value={selected.total} />
             <StatCard label="Concluídas" value={selected.done} hint={`${selected.points} pts`} tone="success" />
             <StatCard label="Abertas" value={selected.open} hint={`${selected.openPoints} pts`} />
-            <StatCard label="Atrasadas" value={selected.late} tone={selected.late ? "danger" : "success"} />
+            <StatCard label={lateLabel} value={lateOf(selected)} tone={lateOf(selected) ? "danger" : "success"} />
             <StatCard label="Bloqueadas" value={selected.blocked} tone="warning" />
             <StatCard label="Reaberturas" value={selected.reopened} />
             <StatCard label="Revisões" value={selected.reviews} />
