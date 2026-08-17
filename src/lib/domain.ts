@@ -192,7 +192,7 @@ export function hoursBetween(a?: string | null, b?: string | null) {
 export function formatHours(h: number | null | undefined) {
   if (h === null || h === undefined || Number.isNaN(h)) return "—";
   if (h < 1) return `${Math.round(h * 60)} min`;
-  if (h < 48) return `${h.toFixed(1)} h`;
+  if (h < 24) return `${h.toFixed(1)} h`;
   return `${(h / 24).toFixed(1)} d`;
 }
 
