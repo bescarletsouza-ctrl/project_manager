@@ -59,6 +59,7 @@ import {
 import {
   applyAutomationMoves,
   moveTaskSection,
+  runAutomations,
   runAutomationsForTask,
   setTaskDepartment,
   setTaskSecondaryDepartments,
