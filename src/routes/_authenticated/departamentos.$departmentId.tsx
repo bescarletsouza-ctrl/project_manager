@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -239,6 +239,42 @@ function DepartmentDetail() {
   // seção de projeto), task_field_values (set_field) ou criar notificação.
   const invalidateTaskAuto = useInvalidate(["tasks", "task_projects", "task_departments", "task_field_values", "notifications"]);
 
+  const queryClient = useQueryClient();
+  /**
+   * Move o card na tela IMEDIATAMENTE ao soltar, sem esperar o servidor —
+   * antes disso, o Quadro só re-renderizava depois do round-trip completo
+   * (gravar seção + rodar automações + reposicionar a coluna toda), então o
+   * card parecia "voltar" pro lugar original e só bem depois pular pra onde
+   * foi solto. Espelha a mesma regra de sectionIdInDept: departamento
+   * principal grava em tasks.section_id, secundário em task_departments.
+   * Devolve uma função de rollback (usada em onError) que restaura os dois
+   * snapshots — só um dos dois é tocado por chamada, mas capturar ambos é
+   * mais simples do que decidir qual snapshot guardar.
+   */
+  const applyOptimisticSections = (moves: { taskId: string; sectionId: string | null }[]) => {
+    const prevTasks = queryClient.getQueryData<Task[]>(["tasks"]);
+    const prevTaskDepartments = queryClient.getQueryData<TaskDepartment[]>(["task_departments"]);
+    for (const { taskId, sectionId } of moves) {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) continue;
+      if (task.department_id === departmentId) {
+        queryClient.setQueryData<Task[]>(["tasks"], (old) =>
+          old?.map((t) => (t.id === taskId ? { ...t, section_id: sectionId } : t)),
+        );
+      } else {
+        queryClient.setQueryData<TaskDepartment[]>(["task_departments"], (old) =>
+          old?.map((td) =>
+            td.task_id === taskId && td.department_id === departmentId ? { ...td, section_id: sectionId } : td,
+          ),
+        );
+      }
+    }
+    return () => {
+      queryClient.setQueryData(["tasks"], prevTasks);
+      queryClient.setQueryData(["task_departments"], prevTaskDepartments);
+    };
+  };
+
   const patchDept = useMutation({
     mutationFn: (patch: { name?: string; color?: string }) => updateDepartment(departmentId, patch),
     onSuccess: () => {
@@ -303,8 +339,12 @@ function DepartmentDetail() {
       const { applied } = await moveTaskSection(task, input.sectionId, allSections, automations, taskDepartments);
       if (applied.length) toast.info(`Automação aplicada: ${applied.join(", ")}`);
     },
+    onMutate: (input) => ({ rollback: applyOptimisticSections([input]) }),
     onSuccess: () => invalidateTaskAuto(),
-    onError: () => toast.error("Não foi possível mover a tarefa."),
+    onError: (_e, _input, ctx) => {
+      ctx?.rollback();
+      toast.error("Não foi possível mover a tarefa.");
+    },
   });
 
   /**
@@ -323,8 +363,21 @@ function DepartmentDetail() {
       }
       await Promise.all(input.ids.map((id, i) => updateTask(id, { position: i })));
     },
+    onMutate: (input) => {
+      const rollback = applyOptimisticSections([{ taskId: input.movedId, sectionId: input.sectionId }]);
+      queryClient.setQueryData<Task[]>(["tasks"], (old) =>
+        old?.map((t) => {
+          const i = input.ids.indexOf(t.id);
+          return i >= 0 ? { ...t, position: i } : t;
+        }),
+      );
+      return { rollback };
+    },
     onSuccess: () => invalidateTaskAuto(),
-    onError: () => toast.error("Não foi possível reordenar as tarefas."),
+    onError: (_e, _input, ctx) => {
+      ctx?.rollback();
+      toast.error("Não foi possível reordenar as tarefas.");
+    },
   });
   /** Solta a tarefa arrastada sobre `targetTaskId`, inserindo antes dela. */
   function dropTaskOn(targetTaskId: string, sectionId: string | null, listIds: string[]) {
