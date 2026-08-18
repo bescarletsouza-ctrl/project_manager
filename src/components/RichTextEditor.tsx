@@ -288,7 +288,10 @@ export function RichTextEditor({
     // sempre em modo edição, sem uma view somente-leitura separada como o
     // comentário tem (RichTextView), então sem isso a descrição nunca
     // ganhava o link clicável mesmo depois de salva.
-    if (ref.current) ref.current.innerHTML = linkifyHtml(value || "");
+    if (ref.current) {
+      ref.current.innerHTML = linkifyHtml(value || "");
+      ref.current.querySelectorAll(".mention").forEach((el) => el.setAttribute("contenteditable", "false"));
+    }
     setExpanded(false);
     checkOverflow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -346,6 +349,12 @@ export function RichTextEditor({
 
     const mentionSpan = document.createElement("span");
     mentionSpan.className = "mention";
+    // Não-editável: sem isso, em certas posições o navegador continua a
+    // digitação DENTRO do span em vez de no texto ao lado, e o resto da
+    // frase fica preso ali (herdando a cor da menção pra sempre, mesmo
+    // depois de salvo). Com contenteditable="false" o span vira um bloco
+    // atômico — o cursor não entra nele, só passa por cima ou o apaga inteiro.
+    mentionSpan.setAttribute("contenteditable", "false");
     mentionSpan.textContent = `@${member.name}`;
     const afterNode = document.createTextNode(` ${text.slice(range.startOffset)}`);
     const beforeNode = document.createTextNode(text.slice(0, atIndex));

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Archive, ArchiveRestore, Inbox, Mail, MailOpen, Trash2 } from "lucide-react";
@@ -74,6 +74,16 @@ function InboxPage() {
   const [to, setTo] = useState("");
 
   const invalidate = useInvalidate(["notifications"]);
+
+  /** Link de e-mail (?task=<id>) — abre a tarefa direto, sem precisar caçar na lista. */
+  useEffect(() => {
+    if (isLoading) return;
+    const taskId = new URLSearchParams(window.location.search).get("task");
+    if (!taskId) return;
+    const target = tasks.find((t) => t.id === taskId);
+    if (target) setOpenTask(target);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [isLoading, tasks]);
 
   const read = useMutation({ mutationFn: (id: string) => markNotificationRead(id), onSuccess: invalidate });
 
