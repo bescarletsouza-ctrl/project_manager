@@ -63,15 +63,20 @@ export function decodeFieldValue(raw: string | null): { fieldId: string; value: 
 export type AutoMoves = {
   /**
    * Só de automação de PROJETO — grava em task_projects (via
-   * applyAutomationMoves), nunca em task.section_id. Automação de
-   * departamento grava direto em patch["section_id"] (ver runAutomations),
-   * porque esse é o campo nativo da tarefa pro departamento.
+   * applyAutomationMoves), nunca em task.section_id. Automação do
+   * departamento PRINCIPAL grava direto em patch["section_id"] (ver
+   * runAutomations), porque esse é o campo nativo da tarefa pro
+   * departamento. Automação de departamento SECUNDÁRIO vai em
+   * departmentSectionMoves — nunca no campo nativo, que pertence ao
+   * projeto/principal (ver isolamento em moveTaskSection).
    */
   projectSectionId?: string | null;
   moveToProjectId?: string | null;
   addProjectIds: string[];
   /** Campos personalizados a gravar em task_field_values. */
   fieldValues: { fieldId: string; value: string }[];
+  /** "Mover para seção" de automação de departamento SECUNDÁRIO — grava em task_departments.section_id, isolado do campo nativo. */
+  departmentSectionMoves: { departmentId: string; sectionId: string | null }[];
 };
 
 /**
@@ -110,7 +115,7 @@ export function runAutomations(
 ) {
   const patch: Record<string, unknown> = {};
   const applied: string[] = [];
-  const moves: AutoMoves = { addProjectIds: [], fieldValues: [] };
+  const moves: AutoMoves = { addProjectIds: [], fieldValues: [], departmentSectionMoves: [] };
   let notify = false;
 
   const containerMatches = (a: Automation) => {
@@ -159,15 +164,25 @@ export function runAutomations(
         patch["tags"] = [...new Set([...(task.tags ?? []), a.action_value as string])];
         break;
       case "move_section":
-        // "Mover para seção" de automação de DEPARTAMENTO grava direto no
-        // campo nativo da tarefa. De PROJETO vai para task_projects (via
-        // moves.projectSectionId) — só espelha em section_id também quando
-        // a tarefa não tem departamento (senão pisaria na posição dele).
-        // Sem essa distinção, uma tarefa com projeto E departamento que
-        // dispara os dois lados juntos tinha o último a rodar sobrescrevendo
-        // o outro no mesmo campo.
+        // "Mover para seção" de automação do departamento PRINCIPAL grava
+        // direto no campo nativo da tarefa. De um departamento SECUNDÁRIO
+        // (a.department_id existe mas é diferente do principal da tarefa)
+        // vai isolado em departmentSectionMoves/task_departments.section_id
+        // — escrever no campo nativo ali corrompia a posição real da tarefa
+        // no projeto/principal com um id de seção de outro departamento,
+        // que nem existe na lista de seções de quem lê esse campo (a tarefa
+        // "sumia" pra Sem seção/1ª seção). De PROJETO vai para task_projects
+        // (via moves.projectSectionId) — só espelha em section_id também
+        // quando a tarefa não tem departamento (senão pisaria na posição
+        // dele). Sem essa distinção, uma tarefa com projeto E departamento
+        // que dispara os dois lados juntos tinha o último a rodar
+        // sobrescrevendo o outro no mesmo campo.
         if (a.department_id != null) {
-          patch["section_id"] = a.action_value;
+          if (task.department_id != null && a.department_id === task.department_id) {
+            patch["section_id"] = a.action_value;
+          } else {
+            moves.departmentSectionMoves.push({ departmentId: a.department_id, sectionId: a.action_value ?? null });
+          }
         } else if (a.project_id != null) {
           moves.projectSectionId = a.action_value;
           if (!task.department_id) patch["section_id"] = a.action_value;
@@ -214,7 +229,7 @@ export function runAutomationsForTask(
 ) {
   const patch: Record<string, unknown> = {};
   const applied: string[] = [];
-  const moves: AutoMoves = { addProjectIds: [], fieldValues: [] };
+  const moves: AutoMoves = { addProjectIds: [], fieldValues: [], departmentSectionMoves: [] };
   let notify = false;
   const containers = extra.departmentIds.length
     ? extra.departmentIds.map((departmentId) => ({ projectId: extra.projectId, departmentId }))
@@ -226,6 +241,7 @@ export function runAutomationsForTask(
     applied.push(...r.applied);
     moves.addProjectIds.push(...r.moves.addProjectIds);
     moves.fieldValues.push(...r.moves.fieldValues);
+    moves.departmentSectionMoves.push(...r.moves.departmentSectionMoves);
     if (r.moves.projectSectionId !== undefined) moves.projectSectionId = r.moves.projectSectionId;
     if (r.moves.moveToProjectId) moves.moveToProjectId = r.moves.moveToProjectId;
     notify = notify || r.notify;
@@ -235,10 +251,12 @@ export function runAutomationsForTask(
 
 /**
  * Executa as movimentações de seção/projeto resultantes das automações.
- * Assinatura aceita o mesmo container do runAutomations. Para departamento,
- * setTaskProjectSection não é chamado (task_projects é vínculo projeto—
- * tarefa, não tem departamento). O section_id do move já foi aplicado no
- * patch do runAutomations, o que basta.
+ * Assinatura aceita o mesmo container do runAutomations. Para departamento
+ * PRINCIPAL, setTaskProjectSection não é chamado (task_projects é vínculo
+ * projeto—tarefa, não tem departamento). O section_id do move já foi
+ * aplicado no patch do runAutomations, o que basta. Departamento SECUNDÁRIO
+ * vem à parte em departmentSectionMoves, cada item com seu próprio
+ * departmentId — não depende do container passado aqui.
  */
 export async function applyAutomationMoves(
   taskId: string,
@@ -253,6 +271,9 @@ export async function applyAutomationMoves(
   }
   for (const pid of moves.addProjectIds) {
     await linkTaskToProject(taskId, pid, null);
+  }
+  for (const { departmentId, sectionId } of moves.departmentSectionMoves) {
+    await setTaskDepartmentSection(taskId, departmentId, sectionId);
   }
   for (const { fieldId, value } of moves.fieldValues) {
     // task_field_values usa upsert, então sobrescrever valor existente é OK.
