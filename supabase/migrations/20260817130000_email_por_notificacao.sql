@@ -8,13 +8,26 @@
 -- notifications, então um único trigger AFTER INSERT nessa tabela cobre
 -- qualquer regra existente ou futura, sem duplicar lógica.
 --
--- A API key do Resend fica no Vault (nunca em texto puro na migration).
+-- A API key do Resend fica em public._app_secrets (RLS ligado, sem nenhuma
+-- policy -- só quem bypassa RLS, ex. o dono da tabela, consegue ler; anon/
+-- authenticated não enxergam nada). Tentamos o Vault do Supabase primeiro,
+-- mas vault.decrypted_secrets voltava NULL de dentro da function SECURITY
+-- DEFINER mesmo com o secret existindo e com search_path incluindo
+-- vault/pgsodium -- não valia continuar caçando a causa às cegas.
+--
 -- Depois de aplicar esta migration, rodar uma vez no SQL editor:
---   select vault.create_secret('re_xxx_sua_api_key', 'resend_api_key');
+--   insert into public._app_secrets(key, value) values ('resend_api_key', 're_sua_chave_aqui');
 -- Se o secret não existir ainda, a função simplesmente não envia e-mail
--- (não quebra o INSERT da notificação).
+-- (não quebra o INSERT da notificação). Qualquer erro na chamada ao Resend
+-- também é engolido pelo mesmo motivo.
 
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
+CREATE TABLE IF NOT EXISTS public._app_secrets (
+  key text PRIMARY KEY,
+  value text NOT NULL
+);
+ALTER TABLE public._app_secrets ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION public.send_notification_email()
 RETURNS TRIGGER
@@ -31,11 +44,7 @@ DECLARE
   v_link text;
   v_html text;
 BEGIN
-  SELECT decrypted_secret INTO v_api_key
-  FROM vault.decrypted_secrets
-  WHERE name = 'resend_api_key'
-  LIMIT 1;
-
+  SELECT value INTO v_api_key FROM public._app_secrets WHERE key = 'resend_api_key';
   IF v_api_key IS NULL THEN
     RETURN NEW;
   END IF;
@@ -79,13 +88,15 @@ BEGIN
       'Content-Type', 'application/json'
     ),
     body := jsonb_build_object(
-      'from', 'Alana <notificacoes@dtsgroup.com.br>',
+      'from', 'Alana <notifications@alana.dtsgroup.com.br>',
       'to', v_email,
       'subject', NEW.title,
       'html', v_html
     )
   );
 
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
   RETURN NEW;
 END;
 $$;
