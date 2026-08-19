@@ -468,6 +468,11 @@ function withinIso(iso: string | null, from: string, to: string) {
   return d >= from && d <= to;
 }
 
+function fmtBrIso(iso: string) {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export type FlowAnalysis = {
   periodFrom: string;
   periodTo: string;
@@ -577,7 +582,10 @@ export function computeFlowAnalysis(
     motivo = "Período selecionado é menor que uma semana — taxas semanais não são confiáveis nesse intervalo.";
   } else if (capacidadeSemanal === null) {
     status = "dados_insuficientes";
-    motivo = `Menos de ${MIN_ENTREGAS_PARA_CAPACIDADE} entregas nas ${CAPACITY_LOOKBACK_WEEKS} semanas anteriores ao período — sem histórico suficiente pra estimar capacidade.`;
+    motivo =
+      capacidadeSemanasReal < 1
+        ? `Cadastro no Alana em ${fmtBrIso(memberStart)} — ainda não passou uma semana completa de histórico antes do período pra estimar capacidade.`
+        : `Só ${capacidadeTasks.length} entrega${capacidadeTasks.length === 1 ? "" : "s"} concluída${capacidadeTasks.length === 1 ? "" : "s"} desde ${fmtBrIso(memberStart)} até o início do período (mínimo ${MIN_ENTREGAS_PARA_CAPACIDADE}) — sem histórico suficiente pra estimar capacidade.`;
   } else if (recebidasSemanais > capacidadeSemanal * (1 + FLOW_TOLERANCE)) {
     status = "sobrecarga";
     motivo = `Recebendo ${recebidasSemanais.toFixed(1)} demandas/semana, acima da capacidade histórica de ${capacidadeSemanal.toFixed(1)}/semana.`;
