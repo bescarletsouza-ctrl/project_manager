@@ -131,6 +131,8 @@ export type Member = {
   avatar_color: string;
   avatar_url: string | null;
   phone: string | null;
+  /** Quando o cadastro da pessoa foi criado no Alana — usado como piso do histórico pra estimar capacidade (ver computeFlowAnalysis). */
+  created_at: string;
 };
 
 export type Project = {
@@ -486,15 +488,17 @@ export type FlowAnalysis = {
 
 /**
  * Cruza entrada (demandas recebidas) x saída (entregues) num período e usa o
- * HISTÓRICO REAL de entregas (janela de CAPACITY_LOOKBACK_WEEKS semanas,
- * imediatamente anterior ao período) pra estimar a capacidade média do
- * usuário — nunca um número fixo digitado à mão (isso já existe em
- * member.capacity_points, mas é configurado manualmente por um admin, não
- * reflete histórico real, e por isso não é usado aqui). Toda comparação de
- * "queda de entregas" ou "aumento de tempo de produção" é feita contra o
- * PRÓPRIO passado recente da pessoa, nunca contra um corte fixo igual pra
- * todo mundo. Com menos de MIN_ENTREGAS_PARA_CAPACIDADE entregas na janela
- * de histórico, não dá pra confiar numa média — devolve capacidadeSemanal
+ * HISTÓRICO REAL de entregas (janela de até CAPACITY_LOOKBACK_WEEKS semanas,
+ * imediatamente anterior ao período, nunca voltando antes do dia em que a
+ * pessoa começou a usar o Alana — member.created_at) pra estimar a
+ * capacidade média do usuário — nunca um número fixo digitado à mão (isso já
+ * existe em member.capacity_points, mas é configurado manualmente por um
+ * admin, não reflete histórico real, e por isso não é usado aqui). Toda
+ * comparação de "queda de entregas" ou "aumento de tempo de produção" é
+ * feita contra o PRÓPRIO passado recente da pessoa, nunca contra um corte
+ * fixo igual pra todo mundo. Com menos de MIN_ENTREGAS_PARA_CAPACIDADE
+ * entregas na janela de histórico (ex.: alguém que acabou de começar a
+ * usar o sistema), não dá pra confiar numa média — devolve capacidadeSemanal
  * null e status "dados_insuficientes" em vez de arriscar um número pouco
  * confiável.
  */
@@ -530,11 +534,27 @@ export function computeFlowAnalysis(
 
   // Capacidade + baseline: entregas concluídas na janela ANTERIOR ao período
   // selecionado — nunca sobrepõe, pra não misturar "agora" com "histórico".
-  const capacidadeFrom = addDaysIso(periodFrom, -CAPACITY_LOOKBACK_WEEKS * 7);
+  // A janela nunca volta antes do dia em que a pessoa começou a usar o Alana
+  // (member.created_at) — sem isso, alguém com poucas semanas de conta caía
+  // sempre em "dados insuficientes" porque a janela de 12 semanas incluía
+  // tempo em que ela nem tinha cadastro ainda. Pra quem já usa há mais de
+  // CAPACITY_LOOKBACK_WEEKS semanas, a janela continua as 12 semanas mais
+  // recentes (mantém a capacidade "atual", não a média histórica inteira).
+  const memberStart = member.created_at.slice(0, 10);
+  const capacidadeFromDesejado = addDaysIso(periodFrom, -CAPACITY_LOOKBACK_WEEKS * 7);
+  const capacidadeFrom = memberStart > capacidadeFromDesejado ? memberStart : capacidadeFromDesejado;
   const capacidadeTo = addDaysIso(periodFrom, -1);
   const capacidadeTasks = mine.filter((t) => isDone(t) && withinIso(t.completed_at, capacidadeFrom, capacidadeTo));
+  const capacidadeDias =
+    Math.round(
+      (new Date(`${capacidadeTo}T00:00:00`).getTime() - new Date(`${capacidadeFrom}T00:00:00`).getTime()) /
+        (HOUR * 24),
+    ) + 1;
+  const capacidadeSemanasReal = Math.max(capacidadeDias, 1) / 7;
   const capacidadeSemanal =
-    capacidadeTasks.length >= MIN_ENTREGAS_PARA_CAPACIDADE ? capacidadeTasks.length / CAPACITY_LOOKBACK_WEEKS : null;
+    capacidadeTasks.length >= MIN_ENTREGAS_PARA_CAPACIDADE && capacidadeSemanasReal >= 1
+      ? capacidadeTasks.length / capacidadeSemanasReal
+      : null;
 
   const baselineAvgProducao = capacidadeTasks.length
     ? avg(capacidadeTasks.map((t) => hoursBetween(t.created_at, firstApprovalEntryAt(t.id, fieldActivity, approvalSectionIds))))
@@ -595,7 +615,7 @@ export function computeFlowAnalysis(
     avgProducao,
     reworkPct,
     capacidadeSemanal,
-    capacidadeAmostraSemanas: CAPACITY_LOOKBACK_WEEKS,
+    capacidadeAmostraSemanas: Math.round(capacidadeSemanasReal * 10) / 10,
     capacidadeEntregas: capacidadeTasks.length,
     status,
     motivo,
