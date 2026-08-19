@@ -247,9 +247,17 @@ export const DEADLINE_STATUS_TONE: Record<DeadlineStatus, "danger" | "success" |
 };
 
 /** Data de hoje em componentes locais (não UTC) — consistente com o "agora" que isLate() usa. */
-function todayLocalIso() {
+export function todayLocalIso() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Soma (ou subtrai, com n negativo) dias a uma data ISO (yyyy-mm-dd), em horário local. */
+export function addDaysIso(iso: string, n: number) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  const pad = (x: number) => String(x).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
@@ -424,6 +432,173 @@ export function personMetrics(
     load,
     loadLabel,
     index,
+  };
+}
+
+/* ---------- fluxo de entrada/saída e diagnóstico de sobrecarga ---------- */
+
+export type FlowStatus = "sobrecarga" | "possivel_problema" | "saudavel" | "dados_insuficientes";
+
+export const FLOW_STATUS_LABEL: Record<FlowStatus, string> = {
+  sobrecarga: "Sobrecarga",
+  possivel_problema: "Possível problema de produtividade",
+  saudavel: "Operação saudável",
+  dados_insuficientes: "Dados insuficientes",
+};
+
+export const FLOW_STATUS_TONE: Record<FlowStatus, "danger" | "warning" | "success" | "neutral"> = {
+  sobrecarga: "danger",
+  possivel_problema: "warning",
+  saudavel: "success",
+  dados_insuficientes: "neutral",
+};
+
+/** Quantas semanas de histórico (imediatamente ANTES do período analisado) usar pra estimar capacidade. */
+const CAPACITY_LOOKBACK_WEEKS = 12;
+/** Menos entregas que isso na janela de histórico = não dá pra confiar numa média; não inventa capacidade. */
+const MIN_ENTREGAS_PARA_CAPACIDADE = 3;
+/** Margem de tolerância pra evitar oscilar o diagnóstico por causa de amostra pequena. */
+const FLOW_TOLERANCE = 0.15;
+
+function withinIso(iso: string | null, from: string, to: string) {
+  if (!iso) return false;
+  const d = iso.slice(0, 10);
+  return d >= from && d <= to;
+}
+
+export type FlowAnalysis = {
+  periodFrom: string;
+  periodTo: string;
+  weeksInPeriod: number;
+  recebidas: number;
+  entregues: number;
+  backlogAtual: number;
+  backlogDelta: number;
+  pctAtrasadas: number | null;
+  avgProducao: number | null;
+  reworkPct: number | null;
+  capacidadeSemanal: number | null;
+  capacidadeAmostraSemanas: number;
+  capacidadeEntregas: number;
+  status: FlowStatus;
+  motivo: string;
+};
+
+/**
+ * Cruza entrada (demandas recebidas) x saída (entregues) num período e usa o
+ * HISTÓRICO REAL de entregas (janela de CAPACITY_LOOKBACK_WEEKS semanas,
+ * imediatamente anterior ao período) pra estimar a capacidade média do
+ * usuário — nunca um número fixo digitado à mão (isso já existe em
+ * member.capacity_points, mas é configurado manualmente por um admin, não
+ * reflete histórico real, e por isso não é usado aqui). Toda comparação de
+ * "queda de entregas" ou "aumento de tempo de produção" é feita contra o
+ * PRÓPRIO passado recente da pessoa, nunca contra um corte fixo igual pra
+ * todo mundo. Com menos de MIN_ENTREGAS_PARA_CAPACIDADE entregas na janela
+ * de histórico, não dá pra confiar numa média — devolve capacidadeSemanal
+ * null e status "dados_insuficientes" em vez de arriscar um número pouco
+ * confiável.
+ */
+export function computeFlowAnalysis(
+  member: Member,
+  allTasks: Task[],
+  fieldActivity: TaskFieldActivity[] = [],
+  sections: { id: string; name: string }[] = [],
+  periodFrom: string,
+  periodTo: string,
+): FlowAnalysis {
+  const mine = allTasks.filter((t) => t.assignee_id === member.id);
+  const approvalSectionIds = new Set(sections.filter((s) => isApprovalSectionName(s.name)).map((s) => s.id));
+
+  const recebidasTasks = mine.filter((t) => withinIso(t.created_at, periodFrom, periodTo));
+  const entreguesTasks = mine.filter((t) => isDone(t) && withinIso(t.completed_at, periodFrom, periodTo));
+  const backlogAtual = mine.filter(isOpen).length;
+
+  const periodDays =
+    Math.round(
+      (new Date(`${periodTo}T00:00:00`).getTime() - new Date(`${periodFrom}T00:00:00`).getTime()) / (HOUR * 24),
+    ) + 1;
+  const weeksInPeriod = Math.max(periodDays, 1) / 7;
+
+  const relevantForLate = mine.filter((t) => isOpen(t) || withinIso(t.completed_at, periodFrom, periodTo));
+  const pctAtrasadas = relevantForLate.length ? pct(relevantForLate.filter(isLate).length, relevantForLate.length) : null;
+
+  const avgProducao = entreguesTasks.length
+    ? avg(entreguesTasks.map((t) => hoursBetween(t.created_at, firstApprovalEntryAt(t.id, fieldActivity, approvalSectionIds))))
+    : null;
+
+  const reworkPct = entreguesTasks.length ? pct(entreguesTasks.filter((t) => t.reopen_count > 0).length, entreguesTasks.length) : null;
+
+  // Capacidade + baseline: entregas concluídas na janela ANTERIOR ao período
+  // selecionado — nunca sobrepõe, pra não misturar "agora" com "histórico".
+  const capacidadeFrom = addDaysIso(periodFrom, -CAPACITY_LOOKBACK_WEEKS * 7);
+  const capacidadeTo = addDaysIso(periodFrom, -1);
+  const capacidadeTasks = mine.filter((t) => isDone(t) && withinIso(t.completed_at, capacidadeFrom, capacidadeTo));
+  const capacidadeSemanal =
+    capacidadeTasks.length >= MIN_ENTREGAS_PARA_CAPACIDADE ? capacidadeTasks.length / CAPACITY_LOOKBACK_WEEKS : null;
+
+  const baselineAvgProducao = capacidadeTasks.length
+    ? avg(capacidadeTasks.map((t) => hoursBetween(t.created_at, firstApprovalEntryAt(t.id, fieldActivity, approvalSectionIds))))
+    : null;
+  const baselineRelevant = mine.filter(
+    (t) => withinIso(t.completed_at, capacidadeFrom, capacidadeTo) || (isOpen(t) && t.created_at < periodFrom),
+  );
+  const baselinePctAtrasadas = baselineRelevant.length
+    ? pct(baselineRelevant.filter(isLate).length, baselineRelevant.length)
+    : null;
+
+  const recebidasSemanais = recebidasTasks.length / weeksInPeriod;
+  const entreguesSemanais = entreguesTasks.length / weeksInPeriod;
+
+  let status: FlowStatus;
+  let motivo: string;
+
+  if (weeksInPeriod < 1) {
+    status = "dados_insuficientes";
+    motivo = "Período selecionado é menor que uma semana — taxas semanais não são confiáveis nesse intervalo.";
+  } else if (capacidadeSemanal === null) {
+    status = "dados_insuficientes";
+    motivo = `Menos de ${MIN_ENTREGAS_PARA_CAPACIDADE} entregas nas ${CAPACITY_LOOKBACK_WEEKS} semanas anteriores ao período — sem histórico suficiente pra estimar capacidade.`;
+  } else if (recebidasSemanais > capacidadeSemanal * (1 + FLOW_TOLERANCE)) {
+    status = "sobrecarga";
+    motivo = `Recebendo ${recebidasSemanais.toFixed(1)} demandas/semana, acima da capacidade histórica de ${capacidadeSemanal.toFixed(1)}/semana.`;
+  } else if (
+    entreguesSemanais < capacidadeSemanal * (1 - FLOW_TOLERANCE) ||
+    (baselineAvgProducao !== null && avgProducao !== null && avgProducao > baselineAvgProducao * (1 + FLOW_TOLERANCE)) ||
+    (baselinePctAtrasadas !== null && pctAtrasadas !== null && pctAtrasadas > baselinePctAtrasadas + 10)
+  ) {
+    status = "possivel_problema";
+    const partes: string[] = [];
+    if (entreguesSemanais < capacidadeSemanal * (1 - FLOW_TOLERANCE)) {
+      partes.push(`entregas caíram (${entreguesSemanais.toFixed(1)}/semana vs. ${capacidadeSemanal.toFixed(1)}/semana histórico)`);
+    }
+    if (baselineAvgProducao !== null && avgProducao !== null && avgProducao > baselineAvgProducao * (1 + FLOW_TOLERANCE)) {
+      partes.push(`tempo de produção aumentou (${formatHours(avgProducao)} vs. ${formatHours(baselineAvgProducao)} histórico)`);
+    }
+    if (baselinePctAtrasadas !== null && pctAtrasadas !== null && pctAtrasadas > baselinePctAtrasadas + 10) {
+      partes.push(`atrasos subiram (${pctAtrasadas}% vs. ${baselinePctAtrasadas}% histórico)`);
+    }
+    motivo = `Carga dentro da capacidade histórica, mas ${partes.join(" e ")}.`;
+  } else {
+    status = "saudavel";
+    motivo = "Entrada e saída equilibradas, dentro da capacidade histórica e sem sinais de atraso crescente.";
+  }
+
+  return {
+    periodFrom,
+    periodTo,
+    weeksInPeriod,
+    recebidas: recebidasTasks.length,
+    entregues: entreguesTasks.length,
+    backlogAtual,
+    backlogDelta: recebidasTasks.length - entreguesTasks.length,
+    pctAtrasadas,
+    avgProducao,
+    reworkPct,
+    capacidadeSemanal,
+    capacidadeAmostraSemanas: CAPACITY_LOOKBACK_WEEKS,
+    capacidadeEntregas: capacidadeTasks.length,
+    status,
+    motivo,
   };
 }
 
