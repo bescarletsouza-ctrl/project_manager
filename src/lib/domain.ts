@@ -85,6 +85,19 @@ export const PROJECT_STATUS_LABEL: Record<string, string> = {
   cancelado: "Cancelado",
 };
 
+/**
+ * Recorrente (padrão): projeto contínuo, sem início/fim de execução — nunca
+ * mostra o botão Iniciar/Finalizar. Pontual: tem início e fim reais, então
+ * ganha esse botão pra registrar started_at/finished_at e ver a duração.
+ */
+export const PROJECT_TYPES = ["recorrente", "pontual"] as const;
+export type ProjectType = (typeof PROJECT_TYPES)[number];
+
+export const PROJECT_TYPE_LABEL: Record<ProjectType, string> = {
+  recorrente: "Recorrente",
+  pontual: "Pontual (com início e fim)",
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -153,6 +166,10 @@ export type Project = {
   default_assignee_id: string | null;
   default_due_days: number | null;
   visible_columns: string[];
+  /** "recorrente" (padrão, sem início/fim definidos) ou "pontual" (início e fim — libera o botão Iniciar/Finalizar). */
+  tipo: ProjectType;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 export type Department = { id: string; name: string; color: string };

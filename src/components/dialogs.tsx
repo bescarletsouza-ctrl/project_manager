@@ -26,6 +26,8 @@ import {
   PRIORITY_LABEL,
   PROJECT_STATUS,
   PROJECT_STATUS_LABEL,
+  PROJECT_TYPES,
+  PROJECT_TYPE_LABEL,
   isUnplannedSectionName,
 } from "@/lib/domain";
 import { cn } from "@/lib/utils";
@@ -212,6 +214,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
     status: "planejamento",
     due_date: "",
     color: "indigo" as string,
+    tipo: "recorrente" as string,
   });
 
   const save = useMutation({
@@ -224,6 +227,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
         status: form.status,
         due_date: form.due_date || null,
         color: form.color,
+        tipo: form.tipo,
       });
       await Promise.all(
         DEFAULT_SECTIONS.map((name, position) => createSection({ project_id: id, name, position })),
@@ -334,6 +338,15 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             value={form.due_date}
             onChange={(e) => setForm({ ...form, due_date: e.target.value })}
           />
+        </Field>
+        <Field label="Tipo de projeto" hint="Pontual ganha um botão pra medir a duração real (início → fim).">
+          <select className="field w-full" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
+            {PROJECT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PROJECT_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
         </Field>
       </div>
     </Modal>

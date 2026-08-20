@@ -10,9 +10,11 @@ import {
   LayoutGrid,
   List,
   Pencil,
+  Play,
   Search,
   Settings2,
   SlidersHorizontal,
+  Square,
   Table2,
   Trash2,
   X,
@@ -39,8 +41,12 @@ import {
   PRIORITY_LABEL,
   PROJECT_STATUS,
   PROJECT_STATUS_LABEL,
+  PROJECT_TYPES,
+  PROJECT_TYPE_LABEL,
   STATUS_META,
   STATUS_ORDER,
+  formatHours,
+  hoursBetween,
   isLate,
   isOpen,
   projectHealth,
@@ -214,6 +220,63 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
     >
       <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
       <Pencil className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+    </button>
+  );
+}
+
+/**
+ * Iniciar/Finalizar manual de projetos PONTUAIS (início e fim definidos) —
+ * grava started_at/finished_at só pra medir a duração real de execução.
+ * Projetos recorrentes nunca renderizam isso (o container já filtra por
+ * project.tipo === "pontual" antes de montar este componente).
+ */
+function ProjectStartFinish({ project, canEdit }: { project: Project; canEdit: boolean }) {
+  const invalidateProjects = useInvalidate(["projects"]);
+
+  const start = useMutation({
+    mutationFn: () => updateProject(project.id, { started_at: new Date().toISOString() }),
+    onSuccess: () => {
+      invalidateProjects();
+      toast.success("Projeto iniciado.");
+    },
+    onError: () => toast.error("Não foi possível iniciar o projeto."),
+  });
+
+  const finish = useMutation({
+    mutationFn: () => updateProject(project.id, { finished_at: new Date().toISOString() }),
+    onSuccess: () => {
+      invalidateProjects();
+      toast.success("Projeto finalizado.");
+    },
+    onError: () => toast.error("Não foi possível finalizar o projeto."),
+  });
+
+  if (project.started_at && project.finished_at) {
+    return <Pill tone="success">Duração: {formatHours(hoursBetween(project.started_at, project.finished_at))}</Pill>;
+  }
+
+  if (!canEdit) return null;
+
+  if (project.started_at) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          confirm("Finalizar o projeto agora? Isso encerra a contagem de duração.") && finish.mutate()
+        }
+        disabled={finish.isPending}
+        className="btn btn-outline gap-1.5"
+      >
+        <Square className="size-3.5" />
+        {finish.isPending ? "Finalizando…" : "Finalizar"}
+      </button>
+    );
+  }
+
+  return (
+    <button type="button" onClick={() => start.mutate()} disabled={start.isPending} className="btn btn-outline gap-1.5">
+      <Play className="size-3.5" />
+      {start.isPending ? "Iniciando…" : "Iniciar"}
     </button>
   );
 }
@@ -414,6 +477,7 @@ function ProjectDetail() {
 
           <div className="ml-auto flex items-center gap-2">
             {team.length > 0 && <AvatarStack people={team} />}
+            {project.tipo === "pontual" && <ProjectStartFinish project={project} canEdit={hasAccess} />}
             {hasAccess && (
               <button onClick={() => setEditing(true)} className="btn btn-outline">
                 Editar projeto
@@ -1031,6 +1095,7 @@ function EditProject({
     start_date: project.start_date ?? "",
     due_date: project.due_date ?? "",
     color: project.color ?? "indigo",
+    tipo: project.tipo,
   });
 
   const save = useMutation({
@@ -1045,6 +1110,7 @@ function EditProject({
         start_date: form.start_date || null,
         due_date: form.due_date || null,
         color: form.color,
+        tipo: form.tipo,
       }),
     onSuccess: () => {
       invalidateProjects();
@@ -1175,6 +1241,15 @@ function EditProject({
             value={form.due_date}
             onChange={(e) => setForm({ ...form, due_date: e.target.value })}
           />
+        </Field>
+        <Field label="Tipo de projeto" hint="Pontual ganha um botão pra medir a duração real (início → fim).">
+          <select className="field w-full" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as typeof form.tipo })}>
+            {PROJECT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PROJECT_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
         </Field>
       </div>
     </Modal>

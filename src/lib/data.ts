@@ -403,10 +403,19 @@ export async function duplicateProject(sourceId: string) {
     id: _id,
     name,
     position: _position,
+    started_at: _startedAt,
+    finished_at: _finishedAt,
     ...rest
   } = source;
 
-  const newProjectId = await createProject({ ...rest, name: `Cópia de ${name}` });
+  // Cópia de projeto pontual nasce "não iniciada" — started_at/finished_at
+  // são específicos da execução original, nunca fazem sentido herdados.
+  const newProjectId = await createProject({
+    ...rest,
+    name: `Cópia de ${name}`,
+    started_at: null,
+    finished_at: null,
+  });
 
   try {
     // Seções — id novo, precisamos do mapa antigo→novo para religar tarefas.
