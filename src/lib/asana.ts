@@ -582,9 +582,17 @@ export async function uploadTaskAttachment(input: {
   return (data as { id: string }).id;
 }
 
-/** Cria uma URL temporária para baixar/visualizar (5 min). */
-export async function getAttachmentUrl(storagePath: string) {
-  const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(storagePath, 60 * 5);
+/**
+ * Cria uma URL temporária para visualizar/baixar (5 min). Passando
+ * `downloadName`, o Supabase inclui Content-Disposition: attachment na
+ * resposta — o navegador baixa o arquivo direto em vez de tentar exibir
+ * (obrigatório pra forçar download; o atributo HTML `download` sozinho não
+ * funciona em URL de outra origem, que é o caso do Storage).
+ */
+export async function getAttachmentUrl(storagePath: string, downloadName?: string) {
+  const { data, error } = await supabase.storage
+    .from(ATTACHMENT_BUCKET)
+    .createSignedUrl(storagePath, 60 * 5, downloadName ? { download: downloadName } : undefined);
   if (error) throw error;
   return data.signedUrl;
 }

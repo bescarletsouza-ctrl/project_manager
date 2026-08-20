@@ -1067,12 +1067,26 @@ function AttachmentsBlock({
     }
   };
 
-  const download = async (att: TaskAttachment) => {
+  const openInNewTab = async (att: TaskAttachment) => {
     try {
       const url = await getAttachmentUrl(att.storage_path);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {
       toast.error("Não foi possível abrir o arquivo.");
+    }
+  };
+
+  const download = async (att: TaskAttachment) => {
+    try {
+      const url = await getAttachmentUrl(att.storage_path, att.file_name);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = att.file_name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      toast.error("Não foi possível baixar o arquivo.");
     }
   };
 
@@ -1113,7 +1127,7 @@ function AttachmentsBlock({
                 {isImage ? <FileText className="size-4 shrink-0 text-info" /> : <FileText className="size-4 shrink-0 text-muted-foreground" />}
                 <button
                   type="button"
-                  onClick={() => download(a)}
+                  onClick={() => openInNewTab(a)}
                   className="min-w-0 flex-1 truncate text-left hover:underline"
                   title={a.file_name}
                 >
