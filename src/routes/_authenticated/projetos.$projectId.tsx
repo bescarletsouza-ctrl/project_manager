@@ -243,7 +243,9 @@ function ProjectStartFinish({ project, canEdit }: { project: Project; canEdit: b
   });
 
   const finish = useMutation({
-    mutationFn: () => updateProject(project.id, { finished_at: new Date().toISOString() }),
+    // status: "concluido" junto — é o que move o projeto pro cluster de
+    // Concluídos na lista de projetos (ver projetos.index.tsx).
+    mutationFn: () => updateProject(project.id, { finished_at: new Date().toISOString(), status: "concluido" }),
     onSuccess: () => {
       invalidateProjects();
       toast.success("Projeto finalizado.");

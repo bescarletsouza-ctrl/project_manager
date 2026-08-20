@@ -27,6 +27,7 @@ import {
   cycleTime,
   daysWithoutMovement,
   formatHours,
+  hoursBetween,
   isDone,
   isLate,
   isOpen,
@@ -65,6 +66,21 @@ function daysAgoIso(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
+}
+
+/** Maior contagem de um mapa id→total, resolvido pro nome via a lista de referência (departments/members). */
+function topEntry(counts: Map<string, number>, list: { id: string; name: string }[]): { name: string; count: number } | null {
+  let bestId: string | null = null;
+  let bestCount = 0;
+  for (const [id, count] of counts) {
+    if (count > bestCount) {
+      bestId = id;
+      bestCount = count;
+    }
+  }
+  if (!bestId) return null;
+  const name = list.find((x) => x.id === bestId)?.name ?? "—";
+  return { name, count: bestCount };
 }
 
 function ReportsPage() {
@@ -162,6 +178,45 @@ function ReportsPage() {
       };
     });
   }, [group, projects, tasks]);
+
+  /**
+   * Duração, % atrasadas e "quem mais pesa" (departamento/responsável com
+   * mais tarefas) por projeto. Duração só existe pra projeto "pontual" (tem
+   * started_at/finished_at, ver botão Iniciar/Finalizar no projeto) —
+   * recorrente não tem início/fim real, então mostra "—" em vez de inventar
+   * um número. "Quem mais pesa" usa o departamento PRINCIPAL da tarefa
+   * (task.department_id), não os secundários — evita contar a mesma tarefa
+   * em mais de um departamento na hora de decidir quem carrega mais.
+   */
+  const projectBurden = useMemo(() => {
+    if (group !== "projeto") return [];
+    return projects.map((p) => {
+      const list = tasks.filter((t) => t.project_id === p.id);
+      const pctAtrasadas = list.length ? pct(list.filter(isLate).length, list.length) : null;
+
+      let duracaoLabel = "—";
+      if (p.tipo === "pontual") {
+        if (p.started_at && p.finished_at) {
+          duracaoLabel = formatHours(hoursBetween(p.started_at, p.finished_at));
+        } else if (p.started_at) {
+          duracaoLabel = `${formatHours(hoursBetween(p.started_at, new Date().toISOString()))} (em andamento)`;
+        } else {
+          duracaoLabel = "Não iniciado";
+        }
+      }
+
+      const deptCounts = new Map<string, number>();
+      const memberCounts = new Map<string, number>();
+      for (const t of list) {
+        if (t.department_id) deptCounts.set(t.department_id, (deptCounts.get(t.department_id) ?? 0) + 1);
+        if (t.assignee_id) memberCounts.set(t.assignee_id, (memberCounts.get(t.assignee_id) ?? 0) + 1);
+      }
+      const topDept = topEntry(deptCounts, departments);
+      const topMember = topEntry(memberCounts, members);
+
+      return { id: p.id, name: p.name, duracaoLabel, pctAtrasadas, topDept, topMember, tasks: list };
+    });
+  }, [group, projects, tasks, departments, members]);
 
   if (isLoading) return <div className="card-surface h-96 animate-pulse" />;
 
@@ -333,6 +388,7 @@ function ReportsPage() {
       <UnplannedPanel group={group} rows={rows} plannedDone={plannedDone} unplannedDone={unplannedDone} onSelectDim={openUnplannedRow} />
 
       {group === "projeto" && <ProjectChartsPanel data={projectCharts} onSelect={openSelection} />}
+      {group === "projeto" && <ProjectBurdenPanel data={projectBurden} onSelect={openSelection} />}
 
       <DrilldownPanel selection={selection} onClose={() => setSelection(null)} members={members} projects={projects} />
 
@@ -461,6 +517,64 @@ function ProjectChartsPanel({
           </ResponsiveContainer>
         </div>
       </div>
+    </div>
+  );
+}
+
+type ProjectBurdenRow = {
+  id: string;
+  name: string;
+  duracaoLabel: string;
+  pctAtrasadas: number | null;
+  topDept: { name: string; count: number } | null;
+  topMember: { name: string; count: number } | null;
+  tasks: Task[];
+};
+
+/** Duração real (projeto pontual), % de atrasadas e quem mais pesa (departamento/responsável com mais tarefas) — por projeto. */
+function ProjectBurdenPanel({
+  data,
+  onSelect,
+}: {
+  data: ProjectBurdenRow[];
+  onSelect: (title: string, tasks: Task[]) => void;
+}) {
+  return (
+    <div className="card-surface overflow-x-auto">
+      <div className="p-4">
+        <SectionTitle
+          title="Duração, atraso e carga por projeto"
+          description="Duração só existe pra projeto pontual (botão Iniciar/Finalizar); recorrente mostra '—'. Clique numa linha para ver as tarefas."
+        />
+      </div>
+      <table className="w-full text-sm">
+        <thead className="bg-muted/60 text-left text-xs text-muted-foreground uppercase">
+          <tr>
+            <th className="px-4 py-2 font-medium">Projeto</th>
+            <th className="px-4 py-2 font-medium">Duração</th>
+            <th className="px-4 py-2 font-medium">% atrasadas</th>
+            <th className="px-4 py-2 font-medium">Departamento que mais pesa</th>
+            <th className="px-4 py-2 font-medium">Responsável que mais pesa</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((r) => (
+            <tr
+              key={r.id}
+              onClick={() => onSelect(`Tarefas — ${r.name}`, r.tasks)}
+              className="cursor-pointer border-t border-border hover:bg-secondary/50"
+            >
+              <td className="px-4 py-2 font-medium">{r.name}</td>
+              <td className="px-4 py-2 tabular-nums">{r.duracaoLabel}</td>
+              <td className={cn("px-4 py-2 tabular-nums", r.pctAtrasadas !== null && r.pctAtrasadas > 20 && "text-destructive")}>
+                {r.pctAtrasadas === null ? "—" : `${r.pctAtrasadas}%`}
+              </td>
+              <td className="px-4 py-2">{r.topDept ? `${r.topDept.name} (${r.topDept.count})` : "—"}</td>
+              <td className="px-4 py-2">{r.topMember ? `${r.topMember.name} (${r.topMember.count})` : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

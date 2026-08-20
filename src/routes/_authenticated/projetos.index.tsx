@@ -2,11 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { LayoutGrid, List, Plus, Search } from "lucide-react";
 import { AvatarStack } from "@/components/Avatar";
-import { Bar, EmptyState, Pill } from "@/components/ui-bits";
+import { Bar, EmptyState, Pill, SectionTitle } from "@/components/ui-bits";
 import { NewProjectDialog } from "@/components/dialogs";
 import { useWorkspaceData, nameById } from "@/lib/useData";
 import { useAccessRole } from "@/lib/access";
-import { PROJECT_STATUS, PROJECT_STATUS_LABEL, projectHealth } from "@/lib/domain";
+import { PROJECT_STATUS, PROJECT_STATUS_LABEL, projectHealth, type Member, type Project, type Task } from "@/lib/domain";
 import { softClass } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,14 @@ function ProjectsPage() {
     (p) =>
       (!status || p.status === status) && (!term.trim() || p.name.toLowerCase().includes(term.trim().toLowerCase())),
   );
+
+  // Sem filtro de status explícito, separa Concluídos num cluster à parte
+  // (é pra lá que um projeto pontual vai quando clica Finalizar). Com um
+  // status específico escolhido no filtro, a lista já está filtrada pra
+  // aquele status só — agrupar de novo seria redundante.
+  const clustered = !status;
+  const activeList = clustered ? list.filter((p) => p.status !== "concluido") : list;
+  const doneList = clustered ? list.filter((p) => p.status === "concluido") : [];
 
   return (
     <div className="space-y-4">
@@ -114,61 +122,49 @@ function ProjectsPage() {
             ) : undefined
           }
         />
-      ) : layout === "grid" ? (
+      ) : (
+        <div className="space-y-6">
+          {(!clustered || activeList.length > 0) && (
+            <ProjectCluster
+              {...(clustered ? { title: "Em andamento" } : {})}
+              list={activeList}
+              layout={layout}
+              tasks={tasks}
+              members={members}
+            />
+          )}
+          {clustered && doneList.length > 0 && (
+            <ProjectCluster title="Concluídos" list={doneList} layout={layout} tasks={tasks} members={members} />
+          )}
+        </div>
+      )}
+
+      {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
+    </div>
+  );
+}
+
+function ProjectCluster({
+  title,
+  list,
+  layout,
+  tasks,
+  members,
+}: {
+  title?: string;
+  list: Project[];
+  layout: "grid" | "list";
+  tasks: Task[];
+  members: Member[];
+}) {
+  return (
+    <div className="space-y-3">
+      {title && <SectionTitle title={title} description={`${list.length} projeto(s)`} />}
+      {layout === "grid" ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((p) => {
-            const h = projectHealth(p, tasks);
-            const team = members.filter((m) => tasks.some((t) => t.project_id === p.id && t.assignee_id === m.id));
-            return (
-              <Link
-                key={p.id}
-                to="/projetos/$projectId"
-                params={{ projectId: p.id }}
-                className="card-surface block space-y-3 p-4 transition-shadow hover:shadow-[var(--shadow-raised)]"
-              >
-                <div className="flex items-start gap-2.5">
-                  <span
-                    className={cn(
-                      "grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold",
-                      softClass(p.color),
-                    )}
-                  >
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-semibold">{p.name}</h3>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {PROJECT_STATUS_LABEL[p.status] ?? p.status} · {nameById(members, p.manager_id)}
-                    </p>
-                  </div>
-                  <Pill tone={h.score >= 75 ? "success" : h.score >= 50 ? "warning" : "danger"}>{h.health}</Pill>
-                </div>
-
-                {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>
-                      {h.done}/{h.total} tarefas
-                    </span>
-                    <span className="tabular-nums">{h.progress}%</span>
-                  </div>
-                  <Bar value={h.progress} tone={h.score >= 75 ? "success" : h.score >= 50 ? "warning" : "danger"} />
-                </div>
-
-                <div className="flex items-center gap-2 border-t border-border pt-2.5">
-                  {team.length > 0 && <AvatarStack people={team} max={3} />}
-                  <div className="ml-auto flex flex-wrap items-center gap-1">
-                    {h.late > 0 && <Pill tone="danger">{h.late} atrasadas</Pill>}
-                    {h.blocked > 0 && <Pill tone="warning">{h.blocked} bloqueadas</Pill>}
-                    <span className="text-xs text-muted-foreground">
-                      {p.due_date ? new Date(`${p.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "sem prazo"}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          {list.map((p) => (
+            <ProjectGridCard key={p.id} project={p} tasks={tasks} members={members} />
+          ))}
         </div>
       ) : (
         <div className="card-surface overflow-hidden">
@@ -180,46 +176,101 @@ function ProjectsPage() {
             <span className="w-24 text-right">Entrega</span>
           </div>
           <ul>
-            {list.map((p) => {
-              const h = projectHealth(p, tasks);
-              return (
-                <li key={p.id} className="border-t border-border/60 first:border-t-0">
-                  <Link
-                    to="/projetos/$projectId"
-                    params={{ projectId: p.id }}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/40"
-                  >
-                    <span
-                      className={cn(
-                        "grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold",
-                        softClass(p.color),
-                      )}
-                    >
-                      {p.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
-                    <span className="hidden w-28 sm:block">
-                      <Pill>{PROJECT_STATUS_LABEL[p.status] ?? p.status}</Pill>
-                    </span>
-                    <span className="hidden w-36 items-center gap-2 md:flex">
-                      <Bar value={h.progress} />
-                      <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">{h.progress}%</span>
-                    </span>
-                    <span className="hidden w-32 truncate text-xs text-muted-foreground lg:block">
-                      {nameById(members, p.manager_id)}
-                    </span>
-                    <span className="w-24 text-right text-xs text-muted-foreground">
-                      {p.due_date ? new Date(`${p.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
+            {list.map((p) => (
+              <ProjectListRow key={p.id} project={p} tasks={tasks} members={members} />
+            ))}
           </ul>
         </div>
       )}
-
-      {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
     </div>
+  );
+}
+
+function ProjectGridCard({ project: p, tasks, members }: { project: Project; tasks: Task[]; members: Member[] }) {
+  const h = projectHealth(p, tasks);
+  const team = members.filter((m) => tasks.some((t) => t.project_id === p.id && t.assignee_id === m.id));
+  return (
+    <Link
+      to="/projetos/$projectId"
+      params={{ projectId: p.id }}
+      className="card-surface block space-y-3 p-4 transition-shadow hover:shadow-[var(--shadow-raised)]"
+    >
+      <div className="flex items-start gap-2.5">
+        <span
+          className={cn(
+            "grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold",
+            softClass(p.color),
+          )}
+        >
+          {p.name.slice(0, 1).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-semibold">{p.name}</h3>
+          <p className="truncate text-xs text-muted-foreground">
+            {PROJECT_STATUS_LABEL[p.status] ?? p.status} · {nameById(members, p.manager_id)}
+          </p>
+        </div>
+        <Pill tone={h.score >= 75 ? "success" : h.score >= 50 ? "warning" : "danger"}>{h.health}</Pill>
+      </div>
+
+      {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
+
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>
+            {h.done}/{h.total} tarefas
+          </span>
+          <span className="tabular-nums">{h.progress}%</span>
+        </div>
+        <Bar value={h.progress} tone={h.score >= 75 ? "success" : h.score >= 50 ? "warning" : "danger"} />
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-border pt-2.5">
+        {team.length > 0 && <AvatarStack people={team} max={3} />}
+        <div className="ml-auto flex flex-wrap items-center gap-1">
+          {h.late > 0 && <Pill tone="danger">{h.late} atrasadas</Pill>}
+          {h.blocked > 0 && <Pill tone="warning">{h.blocked} bloqueadas</Pill>}
+          <span className="text-xs text-muted-foreground">
+            {p.due_date ? new Date(`${p.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "sem prazo"}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function ProjectListRow({ project: p, tasks, members }: { project: Project; tasks: Task[]; members: Member[] }) {
+  const h = projectHealth(p, tasks);
+  return (
+    <li className="border-t border-border/60 first:border-t-0">
+      <Link
+        to="/projetos/$projectId"
+        params={{ projectId: p.id }}
+        className="flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/40"
+      >
+        <span
+          className={cn(
+            "grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold",
+            softClass(p.color),
+          )}
+        >
+          {p.name.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
+        <span className="hidden w-28 sm:block">
+          <Pill>{PROJECT_STATUS_LABEL[p.status] ?? p.status}</Pill>
+        </span>
+        <span className="hidden w-36 items-center gap-2 md:flex">
+          <Bar value={h.progress} />
+          <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">{h.progress}%</span>
+        </span>
+        <span className="hidden w-32 truncate text-xs text-muted-foreground lg:block">
+          {nameById(members, p.manager_id)}
+        </span>
+        <span className="w-24 text-right text-xs text-muted-foreground">
+          {p.due_date ? new Date(`${p.due_date}T12:00:00`).toLocaleDateString("pt-BR") : "—"}
+        </span>
+      </Link>
+    </li>
   );
 }
