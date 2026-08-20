@@ -16,7 +16,6 @@ import {
   createSection,
   createTaskLinked,
   notifyAssignment,
-  portfoliosQuery,
   sectionsQuery,
 } from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
@@ -205,12 +204,10 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const invalidateNewProject = useInvalidate(["projects", "sections"]);
   const navigate = useNavigate();
   const members = useQuery(membersQuery).data ?? [];
-  const portfolios = useQuery(portfoliosQuery).data ?? [];
   const [form, setForm] = useState({
     name: "",
     description: "",
     manager_id: "",
-    portfolio_id: "",
     status: "planejamento",
     due_date: "",
     color: "indigo" as string,
@@ -223,7 +220,6 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
         name: form.name.trim(),
         description: form.description || null,
         manager_id: form.manager_id || null,
-        portfolio_id: form.portfolio_id || null,
         status: form.status,
         due_date: form.due_date || null,
         color: form.color,
@@ -304,20 +300,6 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Portfólio">
-          <select
-            className="field w-full"
-            value={form.portfolio_id}
-            onChange={(e) => setForm({ ...form, portfolio_id: e.target.value })}
-          >
-            <option value="">Sem portfólio</option>
-            {portfolios.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
               </option>
             ))}
           </select>

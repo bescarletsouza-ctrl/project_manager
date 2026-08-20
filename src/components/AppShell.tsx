@@ -61,7 +61,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { notificationsQuery, portfoliosQuery } from "@/lib/asana";
+import {
+  linkProjectToPortfolio,
+  notificationsQuery,
+  portfolioProjectsQuery,
+  portfoliosQuery,
+  unlinkProjectFromPortfolio,
+} from "@/lib/asana";
 import { useCurrentMember } from "@/lib/useAsana";
 import { useAccessRole } from "@/lib/access";
 import { dotClass } from "@/lib/colors";
@@ -189,7 +195,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
  * campo inline no lugar do nome. Excluir/duplicar aparecem só para admin —
  * a política de RLS já barra o resto, mas é bom não mostrar botão que erra.
  */
-function SidebarProjectItem({ project, active }: { project: Project; active: boolean }) {
+/** Tipo de dado do drag-and-drop de projeto na barra lateral (arrastar pra dentro/fora de um portfólio). */
+const PROJECT_DRAG_TYPE = "application/x-alana-project-id";
+
+function SidebarProjectItem({
+  project,
+  active,
+  compact,
+}: {
+  project: Project;
+  active: boolean;
+  /** Item pequeno, aninhado dentro de um portfólio (sem o menu de contexto). */
+  compact?: boolean;
+}) {
   const invalidateProjects = useInvalidate(["projects"]);
   // Duplicar/excluir projeto mexe em tarefas/seções/vínculos/automações/campos junto.
   const invalidateProjectCascade = useInvalidate([
@@ -283,12 +301,38 @@ function SidebarProjectItem({ project, active }: { project: Project; active: boo
     );
   }
 
+  const dragHandlers = {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id);
+      e.dataTransfer.effectAllowed = "move";
+    },
+  };
+
+  if (compact) {
+    return (
+      <Link
+        to="/projetos/$projectId"
+        params={{ projectId: project.id }}
+        {...dragHandlers}
+        className={cn(
+          "flex items-center gap-2 rounded-md py-1 pr-2 pl-6 text-[12.5px] text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent",
+          active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+        )}
+      >
+        <span className={cn("size-2 shrink-0 rounded-[3px]", dotClass(project.color))} />
+        <span className="truncate">{project.name}</span>
+      </Link>
+    );
+  }
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <Link
           to="/projetos/$projectId"
           params={{ projectId: project.id }}
+          {...dragHandlers}
           className={cn(
             "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
             active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
@@ -347,6 +391,8 @@ function SidebarContent({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const projects = useQuery(projectsQuery).data ?? [];
   const portfolios = useQuery(portfoliosQuery).data ?? [];
+  const portfolioProjects = useQuery(portfolioProjectsQuery).data ?? [];
+  const clusteredProjectIds = new Set(portfolioProjects.map((pp) => pp.project_id));
   const departments = useQuery(departmentsQuery).data ?? [];
   const notifications = useQuery(notificationsQuery).data ?? [];
   const { member } = useCurrentMember();
@@ -363,6 +409,40 @@ function SidebarContent({
     departments: false,
   });
   const insightsNav = canViewReports ? INSIGHTS_NAV : [];
+
+  const invalidatePortfolioProjects = useInvalidate(["portfolio_projects"]);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  /** Move um projeto pra um portfólio (portfolioId) ou de volta pra "sem portfólio" (null) -- tira de qualquer portfólio meu em que já estivesse antes de colocar no novo. */
+  const moveToPortfolio = useMutation({
+    mutationFn: async ({ projectId, portfolioId }: { projectId: string; portfolioId: string | null }) => {
+      const current = portfolioProjects.filter((pp) => pp.project_id === projectId);
+      for (const pp of current) {
+        if (pp.portfolio_id !== portfolioId) await unlinkProjectFromPortfolio(pp.portfolio_id, projectId);
+      }
+      if (portfolioId && !current.some((pp) => pp.portfolio_id === portfolioId)) {
+        await linkProjectToPortfolio(portfolioId, projectId);
+      }
+    },
+    onSuccess: () => invalidatePortfolioProjects(),
+    onError: () => toast.error("Não foi possível mover o projeto."),
+  });
+
+  const dropHandlers = (portfolioId: string | null, targetKey: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+    },
+    onDragLeave: () => setDragOverTarget((t) => (t === targetKey ? null : t)),
+    onDrop: (e: React.DragEvent) => {
+      const projectId = e.dataTransfer.getData(PROJECT_DRAG_TYPE);
+      setDragOverTarget(null);
+      if (!projectId) return;
+      e.preventDefault();
+      moveToPortfolio.mutate({ projectId, portfolioId });
+    },
+  });
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -442,6 +522,8 @@ function SidebarContent({
               label="Projetos"
               open={open.projects}
               onToggle={() => setOpen((o) => ({ ...o, projects: !o.projects }))}
+              dropActive={dragOverTarget === "sem-portfolio"}
+              {...dropHandlers(null, "sem-portfolio")}
               action={
                 canCreateProject ? (
                   <button
@@ -458,10 +540,11 @@ function SidebarContent({
               {projects.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum projeto ainda</p>
               )}
-              {/* Projeto dentro de um portfólio já aparece lá dentro (seção
-                  Portfólios) — mostrar aqui também duplicava. */}
+              {/* Projeto dentro de um portfólio (do usuário atual — cada um
+                  tem os próprios) já aparece lá dentro, na seção Portfólios;
+                  mostrar aqui também duplicava. */}
               {projects
-                .filter((p) => !p.portfolio_id)
+                .filter((p) => !clusteredProjectIds.has(p.id))
                 .slice(0, 12)
                 .map((p) => (
                   <SidebarProjectItem key={p.id} project={p} active={pathname === `/projetos/${p.id}`} />
@@ -492,20 +575,40 @@ function SidebarContent({
               {portfolios.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum portfólio ainda</p>
               )}
-              {portfolios.map((p) => (
-                <Link
-                  key={p.id}
-                  to="/portfolios/$portfolioId"
-                  params={{ portfolioId: p.id }}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
-                    pathname === `/portfolios/${p.id}` && "bg-sidebar-accent font-medium",
-                  )}
-                >
-                  <span className={cn("size-2.5 shrink-0 rounded-full", dotClass(p.color))} />
-                  <span className="truncate">{p.name}</span>
-                </Link>
-              ))}
+              {/* Arraste um projeto de "Projetos" pra cá pra organizar --
+                  cada portfólio mostra os projetos já dentro dele, também
+                  arrastáveis (pra mover pra outro portfólio ou de volta). */}
+              {portfolios.map((p) => {
+                const dropKey = `portfolio-${p.id}`;
+                const nested = projects.filter((proj) =>
+                  portfolioProjects.some((pp) => pp.portfolio_id === p.id && pp.project_id === proj.id),
+                );
+                return (
+                  <div key={p.id}>
+                    <Link
+                      to="/portfolios/$portfolioId"
+                      params={{ portfolioId: p.id }}
+                      {...dropHandlers(p.id, dropKey)}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+                        pathname === `/portfolios/${p.id}` && "bg-sidebar-accent font-medium",
+                        dragOverTarget === dropKey && "bg-brand/10 ring-1 ring-brand/40",
+                      )}
+                    >
+                      <span className={cn("size-2.5 shrink-0 rounded-full", dotClass(p.color))} />
+                      <span className="truncate">{p.name}</span>
+                    </Link>
+                    {nested.map((proj) => (
+                      <SidebarProjectItem
+                        key={proj.id}
+                        project={proj}
+                        active={pathname === `/projetos/${proj.id}`}
+                        compact
+                      />
+                    ))}
+                  </div>
+                );
+              })}
               <Link
                 to="/portfolios"
                 className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
@@ -587,15 +690,29 @@ function Group({
   onToggle,
   action,
   children,
+  dropActive,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: {
   label: string;
   open: boolean;
   onToggle: () => void;
   action?: React.ReactNode;
   children: React.ReactNode;
+  /** Grupo é alvo de soltar um projeto arrastado (drag-and-drop entre portfólios). */
+  dropActive?: boolean;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
 }) {
   return (
-    <div className="pt-3">
+    <div
+      className={cn("rounded-md pt-3 transition-colors", dropActive && "bg-brand/10 ring-1 ring-brand/40")}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <div className="flex items-center gap-1 px-2">
         <button
           onClick={onToggle}

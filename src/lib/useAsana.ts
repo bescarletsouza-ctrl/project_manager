@@ -10,6 +10,7 @@ import {
   fieldValuesQuery,
   mentionsQuery,
   notificationsQuery,
+  portfolioProjectsQuery,
   portfoliosQuery,
   sectionsQuery,
   taskDepartmentsQuery,
@@ -21,6 +22,7 @@ import type { Member } from "./domain";
 /** Dados do modelo Asana (portfólios, seções, dependências, campos, comentários, inbox). */
 export function useAsanaData() {
   const portfolios = useQuery(portfoliosQuery);
+  const portfolioProjects = useQuery(portfolioProjectsQuery);
   const sections = useQuery(sectionsQuery);
   const dependencies = useQuery(dependenciesQuery);
   const fields = useQuery(customFieldsQuery);
@@ -35,6 +37,7 @@ export function useAsanaData() {
 
   return {
     portfolios: portfolios.data ?? [],
+    portfolioProjects: portfolioProjects.data ?? [],
     sections: sections.data ?? [],
     dependencies: dependencies.data ?? [],
     fields: fields.data ?? [],
@@ -48,6 +51,7 @@ export function useAsanaData() {
     attachments: attachments.data ?? [],
     isLoading:
       portfolios.isLoading ||
+      portfolioProjects.isLoading ||
       sections.isLoading ||
       dependencies.isLoading ||
       fields.isLoading ||

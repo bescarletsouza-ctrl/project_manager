@@ -35,6 +35,7 @@ import {
   createCustomField,
   deleteCustomField,
   getOrCreatePortfolioByName,
+  linkProjectToPortfolio,
   type CustomFieldType,
 } from "@/lib/asana";
 import {
@@ -233,6 +234,7 @@ function EditableProjectName({ project, canEdit }: { project: Project; canEdit: 
  */
 function ProjectStartFinish({ project, canEdit }: { project: Project; canEdit: boolean }) {
   const invalidateProjects = useInvalidate(["projects"]);
+  const invalidatePortfolioProjects = useInvalidate(["portfolio_projects"]);
 
   const start = useMutation({
     mutationFn: () => updateProject(project.id, { started_at: new Date().toISOString() }),
@@ -246,20 +248,23 @@ function ProjectStartFinish({ project, canEdit }: { project: Project; canEdit: b
   const finish = useMutation({
     mutationFn: async () => {
       // status: "concluido" move o projeto pro cluster de Concluídos na
-      // lista de projetos (ver projetos.index.tsx). Arquivar no portfólio
-      // "Concluídos" (criado na hora se ainda não existir) tira o projeto
-      // da lista solta da barra lateral, que só mostra quem não tem
-      // portfólio — mesmo lugar onde qualquer outro portfólio já aparece.
+      // lista de projetos (ver projetos.index.tsx). Arquivar no MEU
+      // portfólio pessoal "Concluídos" (criado na hora se eu ainda não
+      // tiver um) tira o projeto da lista solta da barra lateral -- só do
+      // meu lado; outros usuários organizam o deles independentemente.
       const portfolioId = await getOrCreatePortfolioByName("Concluídos");
-      await updateProject(project.id, {
-        finished_at: new Date().toISOString(),
-        status: "concluido",
-        portfolio_id: portfolioId,
-      });
+      await updateProject(project.id, { finished_at: new Date().toISOString(), status: "concluido" });
+      try {
+        await linkProjectToPortfolio(portfolioId, project.id);
+      } catch {
+        // Já estava nesse portfólio (ex.: usuário tinha adicionado na mão
+        // antes) -- não é motivo pra marcar o "Finalizar" como falho.
+      }
     },
     onSuccess: () => {
       invalidateProjects();
-      toast.success("Projeto finalizado e arquivado no portfólio Concluídos.");
+      invalidatePortfolioProjects();
+      toast.success("Projeto finalizado e arquivado no seu portfólio Concluídos.");
     },
     onError: () => toast.error("Não foi possível finalizar o projeto."),
   });
@@ -318,6 +323,7 @@ function ProjectDetail() {
     comments,
     dependencies,
     portfolios,
+    portfolioProjects,
     taskProjects,
     taskDepartments,
     automations,
@@ -418,6 +424,10 @@ function ProjectDetail() {
   const filtersOn = Boolean(filters.term || filters.assignee || filters.status || filters.hideDone || filters.from || filters.to);
 
   const team = members.filter((m) => projectTasks.some((t) => t.assignee_id === m.id));
+  // Portfólio agora é organização pessoal (ver migration 20260820130000) --
+  // portfolioProjects já vem filtrado por RLS pros portfólios que EU vejo,
+  // então isso é sempre "meu" portfólio pra esse projeto, não um dado global.
+  const myPortfolioId = portfolioProjects.find((pp) => pp.project_id === project.id)?.portfolio_id ?? null;
   const hasAccess = hasProjectAccess(role, currentMember?.id ?? null, project, tasks, taskProjects);
 
   const viewProps = {
@@ -455,15 +465,15 @@ function ProjectDetail() {
           <Link to="/projetos" className="hover:text-foreground hover:underline">
             Projetos
           </Link>
-          {project.portfolio_id && (
+          {myPortfolioId && (
             <>
               <span>/</span>
               <Link
                 to="/portfolios/$portfolioId"
-                params={{ portfolioId: project.portfolio_id }}
+                params={{ portfolioId: myPortfolioId }}
                 className="hover:text-foreground hover:underline"
               >
-                {nameById(portfolios, project.portfolio_id)}
+                {nameById(portfolios, myPortfolioId)}
               </Link>
             </>
           )}
@@ -720,7 +730,6 @@ function ProjectDetail() {
       {editing && (
         <EditProject
           project={project}
-          portfolios={portfolios}
           members={members}
           onClose={() => setEditing(false)}
           onDelete={() => confirm("Excluir este projeto e todas as tarefas?") && remove.mutate()}
@@ -1086,13 +1095,11 @@ function CustomFieldsPanel({
 
 function EditProject({
   project,
-  portfolios,
   members,
   onClose,
   onDelete,
 }: {
   project: Project;
-  portfolios: { id: string; name: string }[];
   members: { id: string; name: string }[];
   onClose: () => void;
   onDelete: () => void;
@@ -1101,7 +1108,6 @@ function EditProject({
   const [form, setForm] = useState({
     name: project.name,
     description: project.description ?? "",
-    portfolio_id: project.portfolio_id ?? "",
     manager_id: project.manager_id ?? "",
     status: project.status,
     priority: project.priority,
@@ -1116,7 +1122,6 @@ function EditProject({
       updateProject(project.id, {
         name: form.name.trim(),
         description: form.description,
-        portfolio_id: form.portfolio_id || null,
         manager_id: form.manager_id || null,
         status: form.status,
         priority: form.priority,
@@ -1189,20 +1194,6 @@ function EditProject({
         </div>
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Portfólio">
-          <select
-            className="field w-full"
-            value={form.portfolio_id}
-            onChange={(e) => setForm({ ...form, portfolio_id: e.target.value })}
-          >
-            <option value="">Sem portfólio</option>
-            {portfolios.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </Field>
         <Field label="Gestor">
           <select
             className="field w-full"

@@ -26,7 +26,7 @@ export const Route = createFileRoute("/_authenticated/portfolios/")({
 
 function PortfoliosPage() {
   const { projects, tasks, members, isLoading } = useWorkspaceData();
-  const { portfolios } = useAsanaData();
+  const { portfolios, portfolioProjects } = useAsanaData();
   const invalidatePortfolios = useInvalidate(["portfolios"]);
   const [form, setForm] = useState({ name: "", description: "", owner_id: "" });
 
@@ -49,8 +49,13 @@ function PortfoliosPage() {
 
   const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
 
+  const clusteredProjectIds = new Set(portfolioProjects.map((pp) => pp.project_id));
+
   function stats(portfolioId: string | null) {
-    const list = projects.filter((p) => p.portfolio_id === portfolioId);
+    const list =
+      portfolioId === null
+        ? projects.filter((p) => !clusteredProjectIds.has(p.id))
+        : projects.filter((p) => portfolioProjects.some((pp) => pp.portfolio_id === portfolioId && pp.project_id === p.id));
     const agg = list.map((p) => projectHealth(p, tasks));
     const total = agg.reduce((s, a) => s + a.total, 0);
     const done = agg.reduce((s, a) => s + a.done, 0);

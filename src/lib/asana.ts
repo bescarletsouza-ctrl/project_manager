@@ -12,6 +12,16 @@ export type Portfolio = {
   owner_id: string | null;
   position: number;
   created_at: string;
+  /** Dono do REGISTRO (quem criou) -- controla visibilidade via RLS. Null = portfólio antigo, visível pra todo mundo. Não confundir com owner_id, que é só o rótulo "Responsável" exibido na tela. */
+  created_by: string | null;
+};
+
+/** Vínculo N:N projeto<->portfólio -- um portfólio pertence a um usuário só, então isso é o que permite cada pessoa organizar os MESMOS projetos de um jeito diferente, sem interferir na visão dos outros. */
+export type PortfolioProject = {
+  id: string;
+  portfolio_id: string;
+  project_id: string;
+  created_at: string;
 };
 
 /**
@@ -177,6 +187,12 @@ export const portfoliosQuery = queryOptions({
   queryFn: () => all<Portfolio>("portfolios", "position"),
 });
 
+/** RLS já devolve só os vínculos de portfólios que o usuário atual pode ver -- não precisa filtrar de novo no client. */
+export const portfolioProjectsQuery = queryOptions({
+  queryKey: ["portfolio_projects"],
+  queryFn: () => all<PortfolioProject>("portfolio_projects"),
+});
+
 export const sectionsQuery = queryOptions({
   queryKey: ["sections"],
   queryFn: () => all<Section>("sections", "position"),
@@ -250,6 +266,12 @@ export const createPortfolio = (payload: Partial<Portfolio>) =>
 export const updatePortfolio = (id: string, patch: Partial<Portfolio>) =>
   run(table("portfolios").update(patch as never).eq("id", id));
 export const deletePortfolio = (id: string) => run(table("portfolios").delete().eq("id", id));
+
+/** Associa/desassocia projeto a portfólio via portfolio_projects (N:N) -- não mais projects.portfolio_id, que era global e impedia cada usuário ter sua própria organização. */
+export const linkProjectToPortfolio = (portfolioId: string, projectId: string) =>
+  run(table("portfolio_projects").insert({ portfolio_id: portfolioId, project_id: projectId } as never));
+export const unlinkProjectFromPortfolio = (portfolioId: string, projectId: string) =>
+  run(table("portfolio_projects").delete().eq("portfolio_id", portfolioId).eq("project_id", projectId));
 
 /**
  * Acha um portfólio pelo nome (sem diferenciar caixa) ou cria na hora —
