@@ -34,6 +34,7 @@ import {
   TASK_COLUMNS,
   createCustomField,
   deleteCustomField,
+  getOrCreatePortfolioByName,
   type CustomFieldType,
 } from "@/lib/asana";
 import {
@@ -243,12 +244,22 @@ function ProjectStartFinish({ project, canEdit }: { project: Project; canEdit: b
   });
 
   const finish = useMutation({
-    // status: "concluido" junto — é o que move o projeto pro cluster de
-    // Concluídos na lista de projetos (ver projetos.index.tsx).
-    mutationFn: () => updateProject(project.id, { finished_at: new Date().toISOString(), status: "concluido" }),
+    mutationFn: async () => {
+      // status: "concluido" move o projeto pro cluster de Concluídos na
+      // lista de projetos (ver projetos.index.tsx). Arquivar no portfólio
+      // "Concluídos" (criado na hora se ainda não existir) tira o projeto
+      // da lista solta da barra lateral, que só mostra quem não tem
+      // portfólio — mesmo lugar onde qualquer outro portfólio já aparece.
+      const portfolioId = await getOrCreatePortfolioByName("Concluídos");
+      await updateProject(project.id, {
+        finished_at: new Date().toISOString(),
+        status: "concluido",
+        portfolio_id: portfolioId,
+      });
+    },
     onSuccess: () => {
       invalidateProjects();
-      toast.success("Projeto finalizado.");
+      toast.success("Projeto finalizado e arquivado no portfólio Concluídos.");
     },
     onError: () => toast.error("Não foi possível finalizar o projeto."),
   });

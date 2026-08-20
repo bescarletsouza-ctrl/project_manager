@@ -458,9 +458,14 @@ function SidebarContent({
               {projects.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum projeto ainda</p>
               )}
-              {projects.slice(0, 12).map((p) => (
-                <SidebarProjectItem key={p.id} project={p} active={pathname === `/projetos/${p.id}`} />
-              ))}
+              {/* Projeto dentro de um portfólio já aparece lá dentro (seção
+                  Portfólios) — mostrar aqui também duplicava. */}
+              {projects
+                .filter((p) => !p.portfolio_id)
+                .slice(0, 12)
+                .map((p) => (
+                  <SidebarProjectItem key={p.id} project={p} active={pathname === `/projetos/${p.id}`} />
+                ))}
               <Link
                 to="/projetos"
                 className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"

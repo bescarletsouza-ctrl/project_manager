@@ -252,6 +252,30 @@ export const updatePortfolio = (id: string, patch: Partial<Portfolio>) =>
 export const deletePortfolio = (id: string) => run(table("portfolios").delete().eq("id", id));
 
 /**
+ * Acha um portfólio pelo nome (sem diferenciar caixa) ou cria na hora —
+ * usado pra arquivar projeto pontual finalizado num portfólio "Concluídos"
+ * automaticamente, sem duplicar o portfólio se ele já existir.
+ */
+export async function getOrCreatePortfolioByName(name: string): Promise<string> {
+  const { data: existing, error: findErr } = await supabase
+    .from("portfolios" as never)
+    .select("id, name")
+    .ilike("name", name)
+    .limit(1);
+  if (findErr) throw findErr;
+  const found = (existing as { id: string; name: string }[] | null)?.[0];
+  if (found) return found.id;
+
+  const { data: created, error: createErr } = await supabase
+    .from("portfolios" as never)
+    .insert({ name, color: "slate" } as never)
+    .select("id")
+    .single();
+  if (createErr) throw createErr;
+  return (created as { id: string }).id;
+}
+
+/**
  * Cria uma seção. Exige exatamente UM entre project_id e department_id — os
  * dois lados chamam esta função (ProjectViews e DepartmentViews), então a
  * assinatura aceita ambos e o CHECK do banco rejeita quem passar 0 ou 2.
