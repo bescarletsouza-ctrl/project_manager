@@ -138,13 +138,22 @@ export function TaskPane({
   const [composerNonce, setComposerNonce] = useState(0);
   const [depTarget, setDepTarget] = useState("");
 
-  // ao trocar de tarefa dentro do painel, recarrega os campos de texto
+  // Ao trocar de tarefa dentro do painel, recarrega os campos de texto — só
+  // no task.id, nunca em task.title/task.description: a tabela tasks tem
+  // Realtime ligado (ver migration 20260813130000), então qualquer update
+  // na MESMA tarefa (de outra pessoa, de outro campo, ou até um refetch
+  // qualquer que passe por aqui) fazia esse efeito redisparar e sobrescrever
+  // o que o usuário estava digitando com o valor antigo do servidor — ele
+  // saía do campo achando que salvou, mas o handler de blur comparava com
+  // `task.description` já resetado pro mesmo valor e concluía "nada mudou",
+  // descartando a edição em silêncio.
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description ?? "");
     setSubtitle("");
     setComment("");
-  }, [task.id, task.title, task.description]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1260,7 +1269,14 @@ function CommentItem({
         {isOwn && !editing && (
           <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <button
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                // Sem isso, se o comentário mudou por fora (Realtime, outra
+                // aba) desde que este item montou, "Editar" abria com o
+                // draft velho — mesma família do bug de description/title
+                // acima, só que por FALTA de resync em vez de resync demais.
+                setDraft(comment.body);
+                setEditing(true);
+              }}
               className="btn btn-ghost px-1.5 py-0.5 text-[11px]"
               aria-label="Editar comentário"
             >
@@ -1333,9 +1349,29 @@ function TaskProjectsBlock({
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => unlinkTaskFromProject(id),
+    mutationFn: async (id: string) => {
+      const link = links.find((l) => l.id === id);
+      await unlinkTaskFromProject(id);
+      /**
+       * Se o vínculo removido era o do projeto PRINCIPAL (task.project_id), não
+       * basta apagar a linha de task_projects: o board do projeto lê
+       * tasks.project_id ALÉM de task_projects (ver projetos.$projectId), então
+       * a tarefa continuava aparecendo no projeto de onde foi "retirada".
+       * Reaponta o principal pra outro projeto ainda vinculado (ou zera).
+       */
+      if (link && link.project_id === task.project_id) {
+        const fallback = links.find((l) => l.id !== id) ?? null;
+        const patch: Record<string, unknown> = { project_id: fallback?.project_id ?? null };
+        // section_id só é "nativo" da tarefa quando ela não tem departamento; aí
+        // ele apontava pra uma seção do projeto que saiu — realinha pro novo
+        // principal (ou zera) pra não ficar seção fantasma.
+        if (!task.department_id) patch["section_id"] = fallback?.section_id ?? null;
+        await updateTask(task.id, patch);
+      }
+    },
     onSuccess: () => {
       invalidateLinks();
+      invalidateTask();
       toast.success("Vínculo removido.");
     },
     onError: () => toast.error("Não foi possível remover o vínculo."),
