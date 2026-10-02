@@ -2,10 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download } from "lucide-react";
 import { SectionTitle, StatusBadge, Pill, EmptyState } from "@/components/ui-bits";
 import { taskDepartmentIdsOf, useInvalidate, useWorkspaceData, nameById } from "@/lib/useData";
 import { createTask, updateTask } from "@/lib/data";
+import { exportTasksToExcel } from "@/lib/exportTasks";
 import { TaskCheck, TaskEditDialog } from "@/components/TaskEditDialog";
 import { DeadlinePill, useSectionSortDir } from "@/components/project/ProjectViews";
 import { RichTextView } from "@/components/RichTextEditor";
@@ -216,6 +217,20 @@ function TasksPage() {
   const [view, setView] = useViewPreference();
   const [selected, setSelected] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const exportExcel = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { count } = await exportTasksToExcel();
+      toast.success(`${count} tarefas exportadas para Excel.`);
+    } catch (e) {
+      toast.error(`Não foi possível exportar: ${(e as { message?: string })?.message ?? "erro"}`);
+    } finally {
+      setExporting(false);
+    }
+  };
   const [filters, setFilters] = useState({
     project: "",
     assignee: "",
@@ -312,6 +327,15 @@ function TasksPage() {
               </button>
             ))}
           </div>
+          <button
+            onClick={exportExcel}
+            disabled={exporting}
+            title="Baixa todas as tarefas (abertas e finalizadas), com todos os campos, num arquivo Excel"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+          >
+            <Download className="size-4" />
+            {exporting ? "Exportando…" : "Exportar Excel"}
+          </button>
           <button
             onClick={() => setCreating(true)}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
